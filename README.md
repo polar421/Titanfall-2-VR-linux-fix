@@ -1,94 +1,97 @@
-<p align="center">
-  <img src="bigwalkvr_icon.png" alt="Big Walk VR" width="160">
-</p>
+# Titanfall 2 VR — Linux / Proton Fork
 
-<h1 align="center">CircuitLord's VR Mod Installer</h1>
+This is my fork of [CircuitLordVRModInstaller](https://github.com/CircuitLord/CircuitLordVRModInstaller), focused on getting Titanfall 2 VR working on Linux through Proton.
 
-### Join the [Discord](https://discord.gg/MTKwud2cCP) if you have questions or feedback!
+I originally started this fork to fix the problems I was running into while setting up Titanfall 2 VR on Linux. After working through the compatibility issues, I was able to get the game running in VR and complete the campaign.
 
-Hey, I'm CircuitLord! This is a utility to automatically install my full-conversion VR mods, keep them up-to-date, and launch them in VR. It currently supports:
-- Big Walk VR
+## What this fork is for
+
+The main goal of this fork is to improve the Linux/Proton experience for Titanfall 2 VR, including both single-player and multiplayer.
+
+Current focus:
+
+- Linux / Proton compatibility
+- OpenXR and WiVRn support
 - Titanfall 2 VR
+- Northstar
+- Single-player VR
+- Multiplayer VR
+- Proton/Wine compatibility fixes
 
-These mods and this installer are community projects, not affiliated with or endorsed by the game developers or publishers. Use at your own risk.
+## Linux setup
 
-**[Download the installer](https://github.com/CircuitLord/CircuitLordVRModInstaller/releases/latest/download/CircuitLordVRModInstaller.exe)**
+My current setup:
 
+- **OS:** CachyOS
+- **GPU:** NVIDIA RTX 3060 12GB
+- **VR headset:** Meta Quest 3S
+- **VR runtime:** WiVRn / OpenXR
+- **Compatibility layer:** Proton
 
-## Titanfall 2 VR
+## Linux compatibility fix
 
-Titanfall 2 VR adds full VR support to the Titanfall 2 campaign. It also includes stereo rendering, full body IK, manual reloads, Titan controls, and more!
+One of the main problems I ran into was a crash caused by the VR mod's audio handling under Wine/Proton.
 
-### What the installer does
+I found that patching Proton's `mmdevapi.dll` fixes the issue and allows the VR mod to continue running.
 
-1. **Finds Titanfall 2** through your Steam/EA/Xbox install.
-2. **Checks the EA app**, which Titanfall 2 needs you signed into to play. If it's missing, launch Titanfall 2 once to install it.
-3. **Installs Northstar and the mod** into a separate `TF2VR` profile in your game directory.
+The patcher in this fork checks the DLL before modifying it and creates a backup of the original file.
 
-Launching Titanfall 2 normally stays unmodded. To play in VR, start SteamVR/your VR runtime of choice and use the installer's Launch in VR button.
+## Multiplayer
 
-### Campaign saves
+Another major goal of this fork is getting **Titanfall 2 VR multiplayer working on Linux**.
 
-VR launches keep their own saves and settings in `Documents\Respawn\Titanfall2_VR`, so your regular campaign stays untouched. During install you can copy your existing campaign progress over or start fresh. Use the installer's Campaign saves button to check your saves or copy your progress later.
+The campaign is already working on my setup, and I'm currently working on the remaining multiplayer compatibility issues.
 
-## Big Walk VR
+The goal is to make it possible to:
 
-Big Walk VR adds full multiplayer-compatible SteamVR support to the game Big Walk by House House. It includes stereo rendering support, full 6dof motion controls with support for grabbing and throwing objects, and more!
+- Launch Titanfall 2 VR multiplayer through Proton
+- Use Northstar multiplayer
+- Connect to multiplayer servers
+- Play multiplayer normally in VR
 
-### Do other players need the mod?
-The **host and other players** need the mod installed to **see your VR hands**.
+Multiplayer support is still being worked on, so this part of the project may require additional fixes and testing.
 
-Your non-vr friends can install the mod and still play in flatscreen!
+## Testing
 
-### What the installer does
+This setup has been tested through actual gameplay rather than just launching the game.
 
-1. **Finds Big Walk** through your Steam install.
-2. **Sets up BepInEx**, the mod loader Big Walk VR depends on.
-3. **Installs the mod** into your game directory.
+I've completed the Titanfall 2 campaign in VR using this Linux/Proton setup.
 
-Launching Big Walk normally through Steam stays non-VR while showing VR players' tracked movement. To play in VR, start SteamVR and use the installer's Launch in VR button.
+## Project status
 
+**Single-player:** Working
 
-## Building from source
+**Multiplayer:** In development
 
-Needs the .NET Framework 4.8 SDK.
+**Linux / Proton support:** Working on my setup
 
-```
-dotnet build src/Installer -c Release
-```
+I'm continuing to work on making the setup easier to reproduce and getting multiplayer working reliably.
 
-Output is a single `src/Installer/bin/Release/net48/CircuitLordVRModInstaller.exe` using only .NET Framework assemblies.
+This is currently an independent fork, so Linux-specific changes are being developed here first.
 
-## How it works
+## Original project
 
-`manifest-v2.json` lists the installer version, BepInEx build, and available BepInEx mods with their download URLs and SHA-256 hashes. The app requires schema version 2, compares it against what is installed, and shows Install or Update accordingly. The legacy `manifest.json` exists only to provide an upgrade path from the old MelonLoader version to the new installer with manifest-v2.
+This project is based on:
 
-A mod package is a zip that mirrors the Big Walk folder, so installing is extract-in-place. Thunderstore metadata at the archive root is ignored. Each entry can declare:
+[CircuitLordVRModInstaller](https://github.com/CircuitLord/CircuitLordVRModInstaller)
 
-- `core`: the headline mod. Everything else lists under Optional add-ons.
-- `preserve`: files left alone if they already exist, so your calibration and configs survive updates.
-- `tokenize`: files where `{{GAMEDIR}}` and `{{GAMEDIR_JSON}}` are replaced with your game folder on install, used for the SteamVR app manifest.
-- `beta`: an optional unstable release selected when the user enables Beta updates. The mod's top-level release fields stay stable, while `beta` has its own `version`, `url`, `sha256`, and `size`.
+All credit for the original Titanfall 2 VR installer and mod work goes to the original project and its contributors.
 
-```json
-"beta": {
-  "version": "1.1.0-beta.1",
-  "url": "https://example.com/BigWalkVR-1.1.0-beta.1.zip",
-  "sha256": "...",
-  "size": 20214466
-}
-```
+## Contributing
 
-Mods without a `beta` entry continue to use their stable release when Beta updates are enabled.
+Linux users who want to help test different Proton versions, hardware, or multiplayer setups are welcome to share their results.
 
-Every install records the exact list of files it wrote to `<game>\UserData\BigWalkVRInstaller\<id>.json`, including runtime payload destinations deployed by the preloader. Updates delete files the previous version shipped that the new one no longer does, and uninstall removes exactly what was recorded, nothing else.
+When reporting an issue, please include your:
 
-## License
+- Linux distribution
+- Proton version
+- GPU / driver version
+- VR headset
+- OpenXR runtime
+- Relevant logs
 
-MIT, see [LICENSE](LICENSE). Third-party software details are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+## Disclaimer
 
-## Supporting
+This is an unofficial fork and is not affiliated with Respawn Entertainment or Electronic Arts.
 
-If you've enjoyed something I've made, and want to support my work, see my ko-fi!
-
-https://ko-fi.com/circuitlord 
+Titanfall 2 and its related trademarks belong to their respective owners.
