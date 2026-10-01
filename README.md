@@ -37,8 +37,8 @@ This setup has been tested through actual gameplay rather than by just launching
 | --- | --- | --- |
 | Northstar multiplayer | **Untested** | `mp_lobby` loaded once in a VR session (2026-09-30 11:50) and then went straight back to the campaign — no match has ever been started |
 | Frontier Defense | **Untested** | `_gamemode_fd.nut` ships with the mod and has never been launched |
-| Private match / listen server | **Untested** | the hosting flow itself has not been exercised |
-| Official Respawn servers in VR | **Partially tested** | `tf2vr --vanilla` reaches the main menu; no session on an official server has been completed |
+| Private match / listen server | ***In Testing Phase** | the hosting flow itself has not been exercised |
+| Official Respawn servers in VR | **In Testing Phase** | `tf2vr --vanilla` reaches the main menu; no session on an official server has been completed |
 | Vanilla clients connecting to our server | **Not started** | needs `ns_auth_allow_insecure 1` on the server plus UDP 37015 forwarded; nobody has connected |
 | H.264 memory recorder | **Known issue, unfixed** | a separate `0xC0000409` from `writer->SetInputMediaType` returning `E_NOTIMPL` under Proton — the `mmdevapi` patch does not address it |
 
