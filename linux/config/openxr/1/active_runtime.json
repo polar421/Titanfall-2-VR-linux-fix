@@ -1,0 +1,8 @@
+{
+    "file_format_version": "1.0.0",
+    "runtime": {
+        "name": "WiVRn",
+        "library_path": "/usr/lib/wivrn/libopenxr_wivrn.so",
+        "MND_libmonado_path": "/usr/lib/wivrn/libmonado_wivrn.so"
+    }
+}

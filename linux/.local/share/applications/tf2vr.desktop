@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Titanfall 2 VR
+GenericName=Titanfall 2 (TF2VR mod)
+Comment=Launch Titanfall 2 with the CircuitLord VR mod via Proton and WiVRn
+Exec=/home/polar/.local/bin/tf2vr
+TryExec=/home/polar/.local/bin/tf2vr
+Icon=/home/polar/.local/share/icons/hicolor/256x256/apps/tf2vr.png
+Path=/home/polar/.local/share/Steam/steamapps/common/Titanfall2
+Terminal=true
+Categories=Game;X-WiVRn-VR;
+Keywords=titanfall;vr;quest;wivrn;proton;
+StartupNotify=true

@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+r"""Re-apply the TF2VR mmdevapi.dll fix after a Proton update.
+
+Wine's ActivateAudioInterfaceAsync() only handles the audio render/capture
+device interfaces.  Titanfall2VR.dll asks for the VAD process-loopback device,
+gets HRESULT 0x80070002 back, and its error handler fastfails -> 0xC0000409.
+
+The unknown-interface branch is a single `je`; retargeting it from the error
+path to the default-render path makes the call succeed against PulseAudio's
+loopback capture device (winepulse already implements
+pulse_get_loopback_capture_device).
+
+Only the 6-byte branch displacement changes; RENDER/CAPTURE/'\\?\SWD#' paths
+are untouched.  The edit is guarded by the exact surrounding code signature so
+a different Wine build is skipped rather than corrupted.
+
+Usage: tf2vr-patch-mmdevapi [-n]   (-n = dry run)
+"""
+
+import glob
+import os
+import shutil
+import stat
+import sys
+
+OFF = 0x369E
+# bytes immediately preceding the branch: test al,1 / test al,4 ; je <err>
+CONTEXT = bytes.fromhex("0fb605e33b01004c8d3ddc3b0100a8010f859c010000a804")
+ORIGINAL = bytes.fromhex("0f8471ffffff")   # je 0x3615  -> hr = 0x80070002
+PATCHED = bytes.fromhex("0f843efdffff")    # je 0x33e2  -> default render endpoint
+
+CANDIDATES = [
+    os.path.expanduser("~/.local/share/Steam/steamapps/common/*/files/lib*/wine/x86_64-windows/mmdevapi.dll"),
+    os.path.expanduser("~/.local/share/Steam/compatibilitytools.d/*/files/lib*/wine/x86_64-windows/mmdevapi.dll"),
+    os.path.expanduser("~/.steam/root/compatibilitytools.d/*/files/lib*/wine/x86_64-windows/mmdevapi.dll"),
+]
+
+
+def handle(path, dry):
+    with open(path, "rb") as fh:
+        data = fh.read()
+    if len(data) < OFF + 6:
+        return f"too small, skipped: {path}"
+
+    ctx = data[OFF - len(CONTEXT):OFF]
+    cur = data[OFF:OFF + 6]
+
+    if ctx != CONTEXT:
+        return f"different Wine build (no signature), skipped: {path}"
+    if cur == PATCHED:
+        return f"already patched: {path}"
+    if cur != ORIGINAL:
+        return f"unexpected bytes {cur.hex()} at 0x{OFF:x}, skipped: {path}"
+
+    if dry:
+        return f"would patch: {path}"
+
+    backup = path + ".orig-tf2vr"
+    if not os.path.exists(backup):
+        shutil.copy2(path, backup)
+
+    mode = os.stat(path).st_mode
+    os.chmod(path, mode | stat.S_IWUSR)
+    with open(path, "r+b") as fh:
+        fh.seek(OFF)
+        fh.write(PATCHED)
+    os.chmod(path, mode)
+    return f"patched: {path}"
+
+
+def main():
+    dry = "-n" in sys.argv[1:] or "--dry-run" in sys.argv[1:]
+    paths = sorted({p for pat in CANDIDATES for p in glob.glob(pat)})
+    if not paths:
+        print("tf2vr-patch-mmdevapi: no Proton mmdevapi.dll found", file=sys.stderr)
+        return 1
+
+    patched = 0
+    for path in paths:
+        msg = handle(path, dry)
+        print(f"  {msg}")
+        if msg.startswith("patched"):
+            patched += 1
+    print(f"tf2vr-patch-mmdevapi: {patched} file(s) {'would be ' if dry else ''}patched "
+          f"of {len(paths)} checked")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Titanfall 2 VR (Vanilla)
+GenericName=Titanfall 2 (TF2VR mod, vanilla servers)
+Comment=VR on official Respawn servers - disable mods marked "!" in the in-game Mods menu
+Exec=/home/polar/.local/bin/tf2vr --vanilla
+TryExec=/home/polar/.local/bin/tf2vr
+Icon=/home/polar/.local/share/icons/hicolor/256x256/apps/tf2vr.png
+Path=/home/polar/.local/share/Steam/steamapps/common/Titanfall2
+Terminal=true
+Categories=Game;X-WiVRn-VR;
+Keywords=titanfall;vr;quest;wivrn;proton;vanilla;online;
+StartupNotify=true

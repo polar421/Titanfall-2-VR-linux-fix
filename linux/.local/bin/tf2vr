@@ -1,0 +1,96 @@
+#!/bin/bash
+# Titanfall 2 VR (TF2VR) launcher - Proton Experimental + WiVRn
+# Usage: tf2vr [--vanilla] [game args...]
+
+STEAM="$HOME/.local/share/Steam"
+G="$STEAM/steamapps/common/Titanfall2"
+PROTON="$STEAM/steamapps/common/Proton - Experimental/proton"
+PFX="$STEAM/steamapps/compatdata/1237970"
+
+# --- options, stripped before they reach the game ---
+VANILLA=0
+USER_ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --vanilla)
+      VANILLA=1 ;;
+    -h|--help)
+      echo "Usage: tf2vr [--vanilla] [game args...]"
+      echo "  --vanilla   Northstar Vanilla-Compatibility mode: official Respawn servers"
+      echo "              and the vanilla server browser. In the in-game Mods menu"
+      echo "              disable every mod marked with '!' (incl. Northstar.CustomServers)."
+      echo "  extra args  are passed to the game, e.g. 'tf2vr sp_crashsite'"
+      exit 0 ;;
+    *)
+      USER_ARGS+=("$a") ;;
+  esac
+done
+
+export STEAM_COMPAT_CLIENT_INSTALL_PATH="$STEAM"
+export STEAM_COMPAT_DATA_PATH="$PFX"
+export TF2VR_OPENXR=1
+unset XR_RUNTIME_JSON VR_PATHREG_OVERRIDE VR_CONFIG_PATH VR_LOG_PATH
+
+# Win path of the game dir, e.g. Z:\home\polar\...\Titanfall2
+WG="Z:${G//\//\\}"
+
+ARGS=(
+  -profile=TF2VR -novid -windowed -w 1832 -h 1919
+  +ns_has_agreed_to_send_token 2
+  +sp_not_focus_pause 0 +not_focus_sleep 0 +sound_without_focus 1
+  +hud_setting_adsDof 0 +dof_enable 0 +mat_antialias_mode 0
+  +mat_letterbox_aspect_threshold 0 +dvs_enable 0 +mat_viewportscale 1
+  +mat_vsync_mode 0 +fps_max 0 +fps_max_use_refresh 0
+)
+
+if [ "$VANILLA" = 1 ]; then
+  ARGS+=(-vanilla)
+  echo "Vanilla-Compatibility mode: official Respawn servers, vanilla server browser."
+  echo "  -> open the Mods menu (bottom of main menu) and disable every mod marked '!'"
+else
+  # Point Northstar at a dead localhost so campaign never touches the master
+  # server (stock default is https://northstar.tf from autoexec_ns_client.cfg).
+  ARGS+=(+ns_masterserver_hostname http://127.0.0.1:9
+         +ns_report_server_to_masterserver 0)
+fi
+
+# A Proton update reverts the mmdevapi.dll fix (audio-loopback -> 0xC0000409),
+# so re-apply it here. Silent unless something actually changed.
+# Set TF2VR_NO_PATCH=1 to run with an unmodified Proton.
+PATCHER="$HOME/.local/bin/tf2vr-patch-mmdevapi"
+if [ -z "${TF2VR_NO_PATCH:-}" ] && [ -x "$PATCHER" ]; then
+  "$PATCHER" 2>/dev/null | grep -E '^  patched:'
+fi
+
+pgrep -x steam >/dev/null \
+  || echo "WARNING: Steam is not running - Proton and the EA entitlement may fail."
+pgrep -x wivrn-server >/dev/null \
+  || echo "WARNING: wivrn-server is not running - start WiVRn and connect the headset first."
+
+EA_EXE='C:\Program Files\Electronic Arts\EA Desktop\EA Desktop\EADesktop.exe'
+ea_running() {  # argv0 scan: EA's comm is CrBrowserMain, so pgrep -x/-f is unreliable
+  local p a
+  for p in /proc/[0-9]*; do
+    a=$(tr '\0' '\n' 2>/dev/null <"$p/cmdline" | head -1)
+    [ "$a" = "$EA_EXE" ] && return 0
+  done
+  return 1
+}
+
+if ! ea_running; then
+  echo "EA Desktop not running - starting it..."
+  "$PROTON" run "$EA_EXE" >/dev/null 2>&1 &
+  for _ in $(seq 1 30); do
+    ea_running && break
+    sleep 1
+  done
+  sleep 5
+  ea_running \
+    || echo "WARNING: EA Desktop did not start - the launcher may hang at 'LSX: connect()'."
+fi
+
+exec "$PROTON" run "$G/TF2VR/tools/crash_monitor.exe" \
+  "$WG\\TF2VR" \
+  "$WG\\Titanfall2VRLauncher.exe" \
+  "${ARGS[@]}" \
+  ${USER_ARGS[@]+"${USER_ARGS[@]}"}
