@@ -18,6 +18,34 @@ Current focus:
 - Multiplayer VR
 - Proton/Wine compatibility fixes
 
+## Project status
+
+This setup has been tested through actual gameplay rather than by just launching the game — the full campaign has been played through in VR.
+
+### Done and tested
+
+| What | Verified how |
+| --- | --- |
+| Campaign / single-player VR | Full Titanfall 2 campaign completed in VR on this setup |
+| `tf2vr` launch path | Starts Proton, WiVRn and EA Desktop and drops into the game; 1832x1919 per eye, ~90 fps at the menu |
+| `mmdevapi.dll` audio fix | Removes the audio-init `0xC0000409` fastfail and re-applies itself after a Proton update |
+| `install.sh` | `--check`, a full install, and an `--uninstall` → reinstall round trip all verified |
+
+### In progress or untested
+
+| What | Status | Still missing |
+| --- | --- | --- |
+| Northstar multiplayer | **Untested** | `mp_lobby` loaded once in a VR session (2026-09-30 11:50) and then went straight back to the campaign — no match has ever been started |
+| Frontier Defense | **Untested** | `_gamemode_fd.nut` ships with the mod and has never been launched |
+| Private match / listen server | **Untested** | the hosting flow itself has not been exercised |
+| Official Respawn servers in VR | **Partially tested** | `tf2vr --vanilla` reaches the main menu; no session on an official server has been completed |
+| Vanilla clients connecting to our server | **Not started** | needs `ns_auth_allow_insecure 1` on the server plus UDP 37015 forwarded; nobody has connected |
+| H.264 memory recorder | **Known issue, unfixed** | a separate `0xC0000409` from `writer->SetInputMediaType` returning `E_NOTIMPL` under Proton — the `mmdevapi` patch does not address it |
+
+**Bottom line:** single-player and the Linux launch path are done and tested. Multiplayer is still in progress — nothing in the second table should be treated as working until it has actually been tested.
+
+I'm continuing to work on making the setup easier to reproduce and on getting multiplayer working reliably. This is an independent fork, so Linux-specific changes land here first.
+
 ## Linux setup
 
 My current setup:
@@ -70,9 +98,7 @@ Under Proton, the mod's `ActivateAudioInterfaceAsync(L"VAD\\Process_Loopback", .
 
 ## Multiplayer
 
-Another major goal of this fork is getting **Titanfall 2 VR multiplayer working on Linux**.
-
-The campaign is already working on my setup, and I'm currently working on the remaining multiplayer compatibility issues.
+Multiplayer is the main thing this fork still has to get right — see [Project status](#project-status) for exactly what has and has not been tested.
 
 The goal is to make it possible to:
 
@@ -81,9 +107,9 @@ The goal is to make it possible to:
 - Connect to multiplayer servers
 - Play multiplayer normally in VR
 
-Multiplayer support is still being worked on, so this part of the project may require additional fixes and testing.
+### How multiplayer could be run
 
-### What works today, and what doesn't
+*None of the options below has been tested yet — they are the plan, not verified instructions. See [Project status](#project-status).*
 
 Northstar ships inside the mod package, so `Northstar.Client`, `Northstar.Custom` and `Northstar.CustomServers` are all enabled, Frontier Defense (`_gamemode_fd.nut`) is present, and the mod's UI override still registers `PrivateLobbyMenu`.
 
@@ -92,36 +118,6 @@ Upstream `TF2VR/tools/launch.json` points Northstar at a dead master server (`+n
 - **Offline private match / Frontier Defense** needs no master server. Use *Play → Private Match* in the lobby, or launch a map directly, e.g. `tf2vr +map mp_forwardbase_kodai +mp_gamemode fd`.
 - **Playing with vanilla (unmodded) clients:** your server cannot appear on the master server vanilla players browse — that list is EA's closed Atlas backend. A vanilla client can instead direct-connect to your listen server (`connect <ip>:37015`) if the server sets `ns_auth_allow_insecure 1` and UDP 37015 is forwarded. Their stock `client.dll` is accepted because `host_skip_client_dll_crc` is already `1`.
 - **`tf2vr --vanilla`** uses Northstar's Vanilla-Compatibility mode. Northstar stays loaded, so the VR plugin still loads, while the game talks to the official Respawn servers. Mods marked `!` must be disabled in the in-game Mods menu.
-
-## Testing
-
-This setup has been tested through actual gameplay rather than just launching the game.
-
-I've completed the Titanfall 2 campaign in VR using this Linux/Proton setup.
-
-### Precise test status
-
-Tested:
-
-- Campaign VR under Proton + WiVRn (1832x1919 per eye, ~90 fps at the menu).
-- The `mmdevapi.dll` fix, which removes the audio-init `0xC0000409` fastfail.
-- `tf2vr --vanilla` launching and loading.
-
-Observed once in a VR session log (2026-09-30 11:50): `mp_lobby` loaded successfully, after which the session returned to the campaign.
-
-**Not tested:** starting or finishing a private match or Frontier Defense round, joining an official Respawn server in VR, and vanilla clients connecting to a hosted server. Multiplayer is a work in progress — do not treat it as working yet. A separate `0xC0000409` originating from the campaign memory recorder's H.264 sink writer (`writer->SetInputMediaType` returning `E_NOTIMPL` under Proton) has been seen as well and is not fixed by the `mmdevapi.dll` patch.
-
-## Project status
-
-**Single-player:** Working
-
-**Multiplayer:** In development
-
-**Linux / Proton support:** Working on my setup
-
-I'm continuing to work on making the setup easier to reproduce and getting multiplayer working reliably.
-
-This is currently an independent fork, so Linux-specific changes are being developed here first.
 
 ## Original project
 
