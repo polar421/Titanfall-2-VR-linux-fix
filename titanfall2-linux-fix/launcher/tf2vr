@@ -57,7 +57,10 @@ fi
 # A Proton update reverts the mmdevapi.dll fix (audio-loopback -> 0xC0000409),
 # so re-apply it here. Silent unless something actually changed.
 # Set TF2VR_NO_PATCH=1 to run with an unmodified Proton.
+# Prefer the patcher sitting next to this script so the repo copy works in place.
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PATCHER="$HOME/.local/bin/tf2vr-patch-mmdevapi"
+[ -x "$HERE/tf2vr-patch-mmdevapi" ] && PATCHER="$HERE/tf2vr-patch-mmdevapi"
 if [ -z "${TF2VR_NO_PATCH:-}" ] && [ -x "$PATCHER" ]; then
   "$PATCHER" 2>/dev/null | grep -E '^  patched:'
 fi

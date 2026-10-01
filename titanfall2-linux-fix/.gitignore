@@ -1,3 +1,0 @@
-# The repo-wide `bin/` rule targets .NET build output.
-# Our launcher scripts live in .local/bin/, so re-include them here.
-!bin/

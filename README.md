@@ -30,19 +30,27 @@ My current setup:
 
 ## Repository contents
 
-Everything Linux-specific lives in [`titanfall2-linux-fix/`](titanfall2-linux-fix/) and mirrors its installed path relative to `$HOME`.
+Everything Linux-specific lives in [`titanfall2-linux-fix/`](titanfall2-linux-fix/):
 
-| File (relative to `$HOME`) | Purpose |
+| Path | Purpose |
 | --- | --- |
-| `.local/bin/tf2vr` | Launcher: starts Proton, checks WiVRn/Steam/EA, builds the launch arguments, optional `--vanilla` |
-| `.local/bin/tf2vr-patch-mmdevapi` | Re-applies the Wine `mmdevapi.dll` fix after a Proton update replaces it |
-| `.local/share/applications/tf2vr.desktop` | App menu entry (campaign) |
-| `.local/share/applications/tf2vr-vanilla.desktop` | App menu entry (`tf2vr --vanilla`) |
-| `.local/share/icons/hicolor/256x256/apps/tf2vr.png` | Icon used by both entries |
+| `install.sh` | Preflight checks, copies everything below into place, applies the mmdevapi fix |
+| `launcher/tf2vr` | Launcher: starts Proton, checks WiVRn/Steam/EA, builds the launch arguments, optional `--vanilla` |
+| `launcher/tf2vr-patch-mmdevapi` | Re-applies the Wine `mmdevapi.dll` fix after a Proton update replaces it |
+| `desktop/tf2vr.desktop` | App menu entry (campaign) |
+| `desktop/tf2vr-vanilla.desktop` | App menu entry (`tf2vr --vanilla`) |
+| `icon/tf2vr.png` | Icon used by both entries |
 
-WiVRn is registered as the OpenXR runtime through `~/.config/openxr/1/active_runtime.json`, and the launcher deliberately unsets `XR_RUNTIME_JSON` so that file is what OpenXR loads. It is a machine-level setting and is intentionally not tracked in this repo.
+Install it with:
 
-The two `.desktop` files hard-code `/home/polar/...` in `Exec=`, `TryExec=`, `Icon=` and `Path=`; edit those for a different user or machine.
+```sh
+cd titanfall2-linux-fix
+./install.sh
+```
+
+`install.sh` is idempotent. It verifies Steam, Titanfall 2, Proton, the TF2VR mod and WiVRn before touching anything, then copies the launcher to `~/.local/bin`, fills in `@BIN@`/`@ICON@`/`@GAMEDIR@` in the `.desktop` templates with your own paths, installs the icon, and applies the mmdevapi fix. `--check` runs the preflight only and changes nothing, `--no-patch` skips the Proton edit, `--uninstall` removes exactly what it installed.
+
+WiVRn is registered as the OpenXR runtime through `~/.config/openxr/1/active_runtime.json`, which `install.sh` creates if it is missing and otherwise leaves alone. The launcher deliberately unsets `XR_RUNTIME_JSON` so that file is what OpenXR loads; it is a machine-level setting and is intentionally not tracked in this repo.
 
 **No file in the game directory is modified.** The installed `TF2VR/` tree stays byte-for-byte identical to the upstream mod package — checked with SHA-256 against `Titanfall2VR-1.0.7.zip`, all 84 files matching. `xr_probe.exe` and `Titanfall2VR.dll` are therefore the stock shipped binaries, not rebuilt ones, and are deliberately not committed here.
 
