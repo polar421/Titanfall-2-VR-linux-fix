@@ -294,6 +294,18 @@ else
         nope "the VR plugin patcher still recognises the installed build"
         printf '%s\n' "$out" | sed 's/^/        /' ;;
     esac
+    if python3 -c '
+import sys
+d = open(sys.argv[1], "rb").read()
+ok = (b"wine_get_version" in d
+      and "ntdll.dll".encode("utf-16-le") in d
+      and b"memories=" in d)
+sys.exit(0 if ok else 1)
+' "$REAL_GAME/TF2VR/plugins/Titanfall2VR.dll" 2>/dev/null; then
+      pass "the installed plugin still gates memory capture on Wine detection"
+    else
+      nope "the installed plugin still gates memory capture on Wine detection"
+    fi
   else
     skip "no installed VR plugin to check"
   fi

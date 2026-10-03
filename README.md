@@ -53,7 +53,7 @@ This setup has been tested through actual gameplay rather than simply confirming
 | 🟢 | Steam / game / Proton / prefix detection | `launcher/tf2vr-detect.sh` reads Steam's own `libraryfolders.vdf` and `appmanifest_*.acf`, so nothing is hardcoded; covered by `tests/test-detect.sh` |
 | 🟢 | Unexpected-exit reporting | The launcher preserves the game's output, prints a banner with the log and both trackers, and writes a local diagnostic report; covered by `tests/test-detect.sh` |
 | 🟢 | Installer error reporting | An internal `install.sh` failure preserves the original output, identifies the failing command, points to both trackers, and exits non-zero; covered by `tests/test-detect.sh` |
-| 🟢 | Test suite | `tests/test-detect.sh` — 58 checks covering detection, the installer's the launcher's exit paths, and the installed build |
+| 🟢 | Test suite | `tests/test-detect.sh` — 59 checks covering detection, the installer's the launcher's exit paths, and the installed build |
 
 #### In testing
 
@@ -65,7 +65,7 @@ This setup has been tested through actual gameplay rather than simply confirming
 
 | | What | Why |
 | --- | --- | --- |
-| 🔴 | H.264 memory recorder | A separate `0xC0000409` occurs when `writer->SetInputMediaType` returns `E_NOTIMPL` under Proton — the `mmdevapi` patch does not address this issue |
+| 🔴 | H.264 memory recorder | Encoding cannot work under Proton — Wine's `mfplat` implements `IMFSinkWriter::SetInputMediaType` as a stub that returns `E_NOTIMPL`, which the plugin treats as fatal. It never gets there: it probes `wine_get_version` in `ntdll.dll` and, when that resolves, skips creating the capture task and logs `memories=wine` in `TF2VR/plugins/Titanfall2VR-data/runtime.txt`. On the installed build the task constructor has exactly one call site and it sits behind that branch, so the recorder cannot run and cannot crash. `tests/test-detect.sh` asserts the probe is still present so a future plugin update cannot silently drop it |
 
 **Bottom line:** single-player, the Linux launch path, and everything the installer ships are done and tested — treat only the 🟢 rows as verified. Multiplayer is no longer tracked on this board; it belongs to the mod's author and is documented under [Earlier multiplayer work](#earlier-multiplayer-work).
 
