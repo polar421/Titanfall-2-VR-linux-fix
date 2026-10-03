@@ -39,7 +39,7 @@ This setup has been tested through actual gameplay rather than by just launching
 
 ### Check board
 
-✅ done and tested · 🟡 **in testing phase** · ❌ not working / not started
+✅ done and tested · 🟡 **in testing phase** · ❌ not working / not started · ❓ **planned / community request**
 
 #### Done
 
@@ -73,16 +73,97 @@ I'm continuing to work on making the setup easier to reproduce — detection, te
 
 ### Planned features
 
-These are things the community has asked for — requests, not commitments. Nothing below is implemented yet.
+The following features and improvements have been suggested by members of the VR community. These are ideas and requests rather than confirmed or planned features. Nothing below is implemented yet.
 
 | | Requested by the community |
 | --- | --- |
-| ❌ | Physical turning while piloting a titan |
-| ❌ | Titan vertical look sensitivity (currently lower than horizontal, and the look-up cutoff is hard to predict) |
-| ❌ | Automatically move the *Interact* trigger to the free hand when the other hand is holding a gun |
-| ❌ | Aim camera-locked titan abilities (Scorch's incendiary launcher wall, Tone's sonar pulse, …) where the player is actually looking |
-| ❌ | Toggle to turn off VR reloads and VR grenade throwing — always auto-reload as a pilot, and throw ordnance with the normal trajectory aimed by hand |
-| ❌ | Update the packaged mod to a newer upstream release |
+| ❓ | Physical turning while piloting a titan |
+| ❓ | Titan vertical look sensitivity (currently lower than horizontal, and the look-up cutoff is hard to predict) |
+| ❓ | Automatically move the *Interact* trigger to the free hand when the other hand is holding a gun |
+| ❓ | Aim camera-locked titan abilities (Scorch's incendiary launcher wall, Tone's sonar pulse, …) where the player is actually looking |
+| ❓ | Toggle to turn off VR reloads and VR grenade throwing — always auto-reload as a pilot, and throw ordnance with the normal trajectory aimed by hand |
+| ❓ | Update the packaged mod to a newer upstream release |
+
+#### Hand Smoothing
+
+**Adjustable Hand Smoothing** — Add a setting that allows players to increase or decrease hand/controller smoothing to better suit their preferences and reduce unwanted controller movement.
+
+#### Seated Play & Accessibility
+
+**Seated Play / Height Offset** — Add an option in the VR menu to manually calibrate or offset the player's height. This would allow seated players to adjust their viewpoint so they do not feel unnaturally crouched or misaligned with the game world.
+
+**Optional Auto-Reload / Button Reload** — Add a toggle that allows weapons to be reloaded with a button press. This could make reloading more accessible for players using rigid physical gunstocks or players with limited arm mobility.
+
+**Button-Based Grenades** — Add an optional button-based grenade system for players who find physically throwing grenades difficult to aim consistently.
+
+**Grenade Visual Arc Aid** — When using button-based grenades, optionally display a visual trajectory arc to help players judge where the grenade will land. This could work similarly to the alternate grenade-throwing approach used by mods such as HL2VR.
+
+#### Wingman Reloading
+
+**Alternative Wingman Reload Method** — Add an optional motion-based reload system for the Wingman.
+
+One possible implementation would be:
+
+- Press B to eject the magazine.
+- Flick the controller to eject the empty magazine.
+- Insert the new magazine manually.
+- Press B again to close the weapon and return it to a ready state.
+
+This would provide an alternative to requiring a specific controller motion after inserting the magazine.
+
+#### Weapon Body Slot Visualization
+
+**Visual Body-Slot Indicators** — Add a visual representation of the weapon/body slots used for equipment.
+
+Possible implementations could include:
+
+- An outline around the slot
+- A highlighted interaction zone
+- A small visual representation of the full equipment model
+
+This could make equipment placement easier to understand and reduce the need to guess where an item needs to be placed.
+
+#### Adjustable Titan POV
+
+**Adjustable Titan Cockpit POV** — Add a setting that allows players to move their viewpoint closer to or farther away from the Titan's displays and cockpit panels.
+
+A closer viewpoint could make the cockpit feel more immersive and make the displays easier to interact with. Depending on the implementation, moving the POV closer could require hiding or repositioning parts of the player's body that would otherwise become visible.
+
+**Titan Body Rotation / Player Movement Synchronization** — An optional setting could allow the Titan's body and cockpit orientation to better follow the player's physical body movements. This could make looking around and interacting with the cockpit feel more connected to the player's real-world movement.
+
+#### Manual Titan Melee
+
+**Manual Titan Melee Attacks** — Add the ability to perform Titan melee attacks manually rather than relying entirely on the existing ability controls.
+
+Possible interactions could include:
+
+- Swinging or striking with the weapon
+- Making a fist using the grip button on the non-dominant hand
+- Using a configurable controller gesture or button
+
+**Manual Ronin Sword Attacks** — An optional manual sword system could allow Ronin players to control sword swings directly.
+
+One possible approach would be to spawn or activate the sword in the appropriate hand while holding an ability modifier. The existing ability modifier could remain on grip, while an option could allow players to change the modifier to trigger if that feels more comfortable.
+
+The exact interaction would need to be determined based on what works reliably with different VR controllers.
+
+#### Optional Laser Pointer
+
+**Optional Weapon Laser Pointer** — Add an optional laser pointer to firearms that can be enabled by the player.
+
+This could provide an additional aiming aid for players who have difficulty accurately aiming VR weapons. It should remain optional so players who prefer a more realistic or unobstructed view can leave it disabled.
+
+#### Manual Magazine Removal
+
+**Manual Magazine Removal** — Allow players to physically remove magazines from weapons instead of requiring a button press.
+
+This could make weapon handling feel more natural, particularly for rifles and LMGs where manually grabbing and removing the magazine would make sense.
+
+**Weapon-Specific Magazine Removal** — Some weapons could require manual magazine removal when their real-world interaction would normally involve a non-firing-hand magazine release.
+
+For example, weapons such as the Flatline could require the player to manually remove the magazine rather than allowing it to be ejected entirely through a button press.
+
+This could provide more consistent physical interaction across weapons while still allowing accessibility options where needed.
 
 ## Linux setup
 
