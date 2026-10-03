@@ -73,9 +73,9 @@ I'm continuing to work on making the setup easier to reproduce — detection, te
 
 ### Planned features
 
-Nothing below is implemented yet.
+These are things the community has asked for — requests, not commitments. Nothing below is implemented yet.
 
-| | Requested |
+| | Requested by the community |
 | --- | --- |
 | ❌ | Physical turning while piloting a titan |
 | ❌ | Titan vertical look sensitivity (currently lower than horizontal, and the look-up cutoff is hard to predict) |
