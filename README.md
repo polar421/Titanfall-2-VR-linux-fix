@@ -4,20 +4,34 @@ This is my fork of [CircuitLordVRModInstaller](https://github.com/CircuitLord/Ci
 
 I originally started this fork to fix the problems I was running into while setting up Titanfall 2 VR on Linux. After working through the compatibility issues, I was able to get the game running in VR and complete the campaign.
 
-## What this fork is for
+## Multiplayer
 
-The main goal of this fork is to improve the Linux/Proton experience for Titanfall 2 VR.
+Multiplayer development is no longer part of this fork.
 
-Current focus:
+The developer of the original Titanfall 2 VR mod is working on the multiplayer side, so I would rather let him handle that work directly instead of maintaining a separate multiplayer implementation here.
 
-- Linux / Proton compatibility
-- OpenXR and WiVRn support
-- Titanfall 2 VR
-- Single-player VR
+This fork is now focused on Linux/Proton compatibility, installation, launch fixes, and the single-player VR experience.
+
+For multiplayer development and support, please follow the original Titanfall 2 VR mod project and its developer.
+
+Where to go for multiplayer: **[Discord](https://discord.gg/MTKwud2cCP)**
+
+## Project Scope
+
+This fork is focused on improving the Linux / Proton experience for Titanfall 2 VR.
+
+The main goals are:
+
+- Linux and Proton compatibility
+- OpenXR / WiVRn compatibility
+- Single-player and campaign VR
+- Linux-specific fixes
 - Proton/Wine compatibility fixes
-- Crash and installer reporting, so a failure can be filed with enough detail
+- Installation and launcher improvements
+- Better error reporting and diagnostics
+- Making the setup work across different Steam library locations and Linux systems
 
-**Multiplayer is not developed here.** The mod's author is working on multiplayer support upstream, so I am not continuing it in this fork. This fork sticks to the Linux/Proton side: the launch path, the binary fixes, detection and reporting. The multiplayer work that already landed here is parked near the bottom of this README under [Multiplayer](#multiplayer) as a record only.
+Multiplayer is intentionally outside the scope of this fork. The original VR mod developer is handling multiplayer development, and this project will not attempt to replace or duplicate that work.
 
 ## Project status
 
@@ -35,10 +49,6 @@ This setup has been tested through actual gameplay rather than by just launching
 | ✅ | `tf2vr` launch path | Starts Proton, WiVRn and EA Desktop and drops into the game; 1832x1919 per eye at 72 Hz |
 | ✅ | `mmdevapi.dll` audio fix | Removes the audio-init `0xC0000409` fastfail and re-applies itself after a Proton update |
 | ✅ | `install.sh` | `--check`, a full install, and an `--uninstall` → reinstall round trip all verified |
-| ✅ | Multiplayer script compile fix | The `Encountered CLIENT script compilation error` on `mp_*` is gone; the Multiplayer menu loads |
-| ✅ | Plugin fastfail patches | The `unrecognized pilot hand model` and `seated pilot model changed` fastfails are nop'd; a private match now loads |
-| ✅ | **Private match / listen server** | ~17 min session on `aitdm`: `mp_lobby` → `HostState: ChangeLevelMP`, shoulder-draw answers `TF2VRMP[draw] OK`, grenades arrive and consume ammo, pilot weapons and the titan deal damage, grunts die to melee |
-| ✅ | Northstar multiplayer auth | `Northstar origin authentication completed successfully!` with no `INVALID_MASTERSERVER_TOKEN`; see `tf2vr` for the `ns_has_agreed_to_send_token` fix |
 | ✅ | Voice lines / grunt chatter | Dialogue audible after setting `sound_volume_dialogue` back to `1` (it was `0.000000` in `profile.cfg`) |
 | ✅ | Steam / game / Proton / prefix detection | `launcher/tf2vr-detect.sh` reads Steam's own `libraryfolders.vdf` and `appmanifest_*.acf`, so nothing is hardcoded; covered by `tests/test-detect.sh` |
 | ✅ | Unexpected-exit reporting | The launcher keeps the game's output, prints a banner with the log and both trackers, and writes a local diagnostic report; covered by `tests/test-detect.sh` |
@@ -50,20 +60,16 @@ This setup has been tested through actual gameplay rather than by just launching
 | | What | Status |
 | --- | --- | --- |
 | 🟡 | Cockpit HUD always visible | Implemented and applied — `tf2vr-patch-titanfall2vr` NOPs the holster-grace branch so `weapon_hud_alpha` stays at 1.0 instead of fading out after 3 s. The instructions and constants were verified against the installed DLL; nobody has confirmed it in the headset yet |
-| 🟡 | Multiplayer against other humans | The session above was solo (only `player polar1251`); no second player has joined, and the mod's HUD/VR behaviour outside a private match is untested |
-| 🟡 | Official Respawn servers in VR | `tf2vr --vanilla` reaches the main menu; no session on an official server has been completed |
 
 #### Not done
 
 | | What | Why |
 | --- | --- | --- |
-| ❌ | Frontier Defense | `_gamemode_fd.nut` ships with the mod and has never been launched |
-| ❌ | Vanilla clients connecting to our server | Needs `ns_auth_allow_insecure 1` on the server plus UDP 37015 forwarded; nobody has connected |
 | ❌ | H.264 memory recorder | A separate `0xC0000409` from `writer->SetInputMediaType` returning `E_NOTIMPL` under Proton — the `mmdevapi` patch does not address it |
 
-**Bottom line:** single-player, the Linux launch path, and a hosted private match are done and tested. Official Respawn servers are still unverified — treat only the ✅ rows as working. The ✅ multiplayer rows record what was fixed here, not a promise that MP is finished.
+**Bottom line:** single-player, the Linux launch path and everything the installer ships are done and tested — treat only the ✅ rows as working. Multiplayer is not tracked on this board any more; it belongs to the mod's author and is recorded under [Earlier multiplayer work](#earlier-multiplayer-work).
 
-I'm continuing to work on making the setup easier to reproduce — detection, tests and reporting — and on the remaining Proton/Wine compatibility fixes. Multiplayer itself now belongs to the mod's author; this is an independent fork, so Linux-specific changes land here first.
+I'm continuing to work on making the setup easier to reproduce — detection, tests and reporting — and on the remaining Proton/Wine compatibility fixes. This is an independent fork, so Linux-specific changes land here first.
 
 ### Planned features
 
@@ -73,7 +79,6 @@ Nothing below is implemented yet.
 | --- | --- |
 | ❌ | Physical turning while piloting a titan |
 | ❌ | Titan vertical look sensitivity (currently lower than horizontal, and the look-up cutoff is hard to predict) |
-| ❌ | First-person titan entry in multiplayer *(upstream — see [Multiplayer](#multiplayer))* |
 | ❌ | Automatically move the *Interact* trigger to the free hand when the other hand is holding a gun |
 | ❌ | Aim camera-locked titan abilities (Scorch's incendiary launcher wall, Tone's sonar pulse, …) where the player is actually looking |
 | ❌ | Toggle to turn off VR reloads and VR grenade throwing — always auto-reload as a pilot, and throw ordnance with the normal trajectory aimed by hand |
@@ -254,7 +259,7 @@ All credit for the original Titanfall 2 VR installer and mod work goes to the or
 
 ## Contributing
 
-Linux users who want to help test different Proton versions, hardware, or multiplayer setups are welcome to share their results.
+Linux users who want to help test different Proton versions or hardware are welcome to share their results.
 
 See [Reporting a problem](#reporting-a-problem) for what to attach, and use the
 [bug report template](.github/ISSUE_TEMPLATE/bug_report.md). At minimum:
@@ -273,11 +278,11 @@ Changes to the shell side should keep `./tests/test-detect.sh` green:
 cd titanfall2-linux-fix && ./tests/test-detect.sh
 ```
 
-## Multiplayer
+## Earlier multiplayer work
 
-**Multiplayer is being worked on by the mod's author upstream, so I am not continuing it in this fork.** Everything below is kept only as a record of what was already fixed here; new multiplayer work belongs in the mod itself rather than in a Linux compatibility fork.
+**Multiplayer is being worked on by the mod's author upstream, so I am not continuing it in this fork.** Everything below is kept only as a record of what was already fixed here; new multiplayer work belongs in the mod itself rather than in a Linux compatibility fork — see [Multiplayer](#multiplayer) at the top for where to go instead.
 
-The Linux/Proton side still matters for multiplayer — the launch path, the binary fixes and Northstar auth all apply — so an MP problem that is specific to Linux or Proton is still in scope. See [Project status](#project-status) for exactly what has and has not been tested.
+The Linux/Proton side still matters for multiplayer — the launch path, the binary fixes and Northstar auth all apply — so an MP problem that is specific to Linux or Proton is still in scope. Nothing here is tracked on the [Project status](#project-status) check board any more.
 
 The goal when this work started was to launch Titanfall 2 VR multiplayer through
 Proton, use Northstar, reach servers and play MP normally in VR. What got there
