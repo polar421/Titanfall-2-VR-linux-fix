@@ -2,10 +2,57 @@
 # Titanfall 2 VR (TF2VR) launcher - Proton Experimental + WiVRn
 # Usage: tf2vr [--vanilla] [game args...]
 
-STEAM="$HOME/.local/share/Steam"
-G="$STEAM/steamapps/common/Titanfall2"
-PROTON="$STEAM/steamapps/common/Proton - Experimental/proton"
-PFX="$STEAM/steamapps/compatdata/1237970"
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+# Steam, the game, its prefix and Proton are detected rather than hardcoded -
+# see launcher/tf2vr-detect.sh, installed next to this script.
+if [ ! -f "$HERE/tf2vr-detect.sh" ]; then
+  echo "tf2vr-detect.sh is missing next to this script ($HERE)." >&2
+  echo "Re-run the installer:  ./install.sh" >&2
+  exit 1
+fi
+# shellcheck source=tf2vr-detect.sh
+. "$HERE/tf2vr-detect.sh"
+
+if [ -n "${TF2VR_GAME:-}" ]; then
+  if ! validate_titanfall2_install "$TF2VR_GAME"; then
+    echo "TF2VR_GAME is not a Titanfall 2 installation: $TF2VR_GAME" >&2
+    exit 1
+  fi
+  G="$TF2VR_GAME"
+else
+  installs=$(find_titanfall2_install)
+  G=$(pick_titanfall2_install || true)
+  if [ -z "$G" ] && [ -n "$installs" ]; then
+    echo "More than one Titanfall 2 installation was found and none of them" >&2
+    echo "is the one Steam currently installs into:" >&2
+    while IFS= read -r d; do printf '  %s\n' "$d"; done <<< "$installs" >&2
+    echo "Choose one by setting TF2VR_GAME:" >&2
+    echo "    TF2VR_GAME=<SteamLibrary>/steamapps/common/Titanfall2 tf2vr" >&2
+    exit 1
+  fi
+fi
+
+if [ -z "$G" ]; then
+  echo "Titanfall 2 could not be found automatically." >&2
+  echo "Re-run ./install.sh and answer the prompt, or set the path yourself:" >&2
+  echo "    TF2VR_GAME=<SteamLibrary>/steamapps/common/Titanfall2 tf2vr" >&2
+  exit 1
+fi
+
+STEAM=$(tf2vr_library_of "$G" || true)
+PFX=$(find_titanfall2_prefix "$G" || true)
+if [ -z "$PFX" ] && [ -n "$STEAM" ]; then
+  PFX="$STEAM/steamapps/compatdata/$TF2VR_APPID"
+fi
+PROTON=$(find_proton || true)
+
+if [ -z "$PROTON" ] || [ ! -x "$PROTON" ]; then
+  echo "No Proton install was found for Titanfall 2." >&2
+  echo "Install one in Steam (Library -> right-click the game -> Properties ->" >&2
+  echo "Compatibility), or point at it directly:  TF2VR_PROTON=/path/to/proton tf2vr" >&2
+  exit 1
+fi
 
 # --- options, stripped before they reach the game ---
 VANILLA=0
@@ -20,6 +67,12 @@ for a in "$@"; do
       echo "              and the vanilla server browser. In the in-game Mods menu"
       echo "              disable every mod marked with '!' (incl. Northstar.CustomServers)."
       echo "  extra args  are passed to the game, e.g. 'tf2vr sp_crashsite'"
+      echo
+      echo "Detected paths:"
+      echo "  Steam library : $STEAM"
+      echo "  Titanfall 2   : $G"
+      echo "  Proton        : $PROTON"
+      echo "  Proton prefix : ${PFX:-<not created yet>}"
       exit 0 ;;
     *)
       USER_ARGS+=("$a") ;;
@@ -31,12 +84,11 @@ export STEAM_COMPAT_DATA_PATH="$PFX"
 export TF2VR_OPENXR=1
 unset XR_RUNTIME_JSON VR_PATHREG_OVERRIDE VR_CONFIG_PATH VR_LOG_PATH
 
-# Win path of the game dir, e.g. Z:\home\polar\...\Titanfall2
+# Win path of the game dir, e.g. Z:\home\you\...\Titanfall2
 WG="Z:${G//\//\\}"
 
 ARGS=(
   -profile=TF2VR -novid -windowed -w 1832 -h 1919
-  +ns_has_agreed_to_send_token 2
   +sp_not_focus_pause 0 +not_focus_sleep 0 +sound_without_focus 1
   +hud_setting_adsDof 0 +dof_enable 0 +mat_antialias_mode 0
   +mat_letterbox_aspect_threshold 0 +dvs_enable 0 +mat_viewportscale 1
@@ -44,26 +96,39 @@ ARGS=(
 )
 
 if [ "$VANILLA" = 1 ]; then
-  ARGS+=(-vanilla)
+  # 2 = NS_DISAGREED_TO_SEND_TOKEN. Vanilla mode never checks it, and upstream
+  # launch.json ships 2 to keep the campaign off the master server.
+  ARGS+=(-vanilla +ns_has_agreed_to_send_token 2)
   echo "Vanilla-Compatibility mode: official Respawn servers, vanilla server browser."
   echo "  -> open the Mods menu (bottom of main menu) and disable every mod marked '!'"
 else
-  # Point Northstar at a dead localhost so campaign never touches the master
-  # server (stock default is https://northstar.tf from autoexec_ns_client.cfg).
-  ARGS+=(+ns_masterserver_hostname http://127.0.0.1:9
+  # Northstar multiplayer needs a real Atlas token. Upstream launch.json ships
+  # `ns_has_agreed_to_send_token 2` (= NS_DISAGREED) plus a dead
+  # `ns_masterserver_hostname http://127.0.0.1:9`; together they lock the
+  # Multiplayer button and make every master-server call answer
+  # INVALID_MASTERSERVER_TOKEN. Agree (1) and leave the stock
+  # https://northstar.tf from autoexec_ns_client.cfg alone. Not reporting the
+  # listen server keeps a private match out of the public browser.
+  ARGS+=(+ns_has_agreed_to_send_token 1
          +ns_report_server_to_masterserver 0)
 fi
 
-# A Proton update reverts the mmdevapi.dll fix (audio-loopback -> 0xC0000409),
-# so re-apply it here. Silent unless something actually changed.
-# Set TF2VR_NO_PATCH=1 to run with an unmodified Proton.
+# A Proton update reverts the mmdevapi.dll fix (audio-loopback -> 0xC0000409)
+# and a VR mod reinstall reverts the plugin patches (multiplayer ->
+# 0xC0000409, cockpit HUD fading away when the gun is holstered), so re-apply
+# both here. Silent unless something actually changed.
+# Set TF2VR_NO_PATCH=1 to run with unmodified binaries.
 # Prefer the patcher sitting next to this script so the repo copy works in place.
-HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-PATCHER="$HOME/.local/bin/tf2vr-patch-mmdevapi"
-[ -x "$HERE/tf2vr-patch-mmdevapi" ] && PATCHER="$HERE/tf2vr-patch-mmdevapi"
-if [ -z "${TF2VR_NO_PATCH:-}" ] && [ -x "$PATCHER" ]; then
-  "$PATCHER" 2>/dev/null | grep -E '^  patched:'
-fi
+run_patcher() {
+  local p="$HOME/.local/bin/$1"
+  [ -x "$HERE/$1" ] && p="$HERE/$1"
+  if [ -z "${TF2VR_NO_PATCH:-}" ] && [ -x "$p" ]; then
+    "$p" 2>/dev/null | grep -E '^  patched:'
+  fi
+  return 0
+}
+run_patcher tf2vr-patch-mmdevapi
+run_patcher tf2vr-patch-titanfall2vr
 
 pgrep -x steam >/dev/null \
   || echo "WARNING: Steam is not running - Proton and the EA entitlement may fail."
@@ -74,7 +139,7 @@ EA_EXE='C:\Program Files\Electronic Arts\EA Desktop\EA Desktop\EADesktop.exe'
 ea_running() {  # argv0 scan: EA's comm is CrBrowserMain, so pgrep -x/-f is unreliable
   local p a
   for p in /proc/[0-9]*; do
-    a=$(tr '\0' '\n' 2>/dev/null <"$p/cmdline" | head -1)
+    a=$(tr '\0' '\n' <"$p/cmdline" 2>/dev/null | head -1)
     [ "$a" = "$EA_EXE" ] && return 0
   done
   return 1
@@ -92,8 +157,141 @@ if ! ea_running; then
     || echo "WARNING: EA Desktop did not start - the launcher may hang at 'LSX: connect()'."
 fi
 
-exec "$PROTON" run "$G/TF2VR/tools/crash_monitor.exe" \
+# --------------------------------------------------------- exit reporting ---
+# The newest Northstar session log, if the game has written one yet.
+newest_session_log() {
+  local dir="$G/TF2VR/logs" name
+  if [ ! -d "$dir" ]; then return 1; fi
+  name=$(ls -t -- "$dir" 2>/dev/null | head -n 1)
+  if [ -z "$name" ]; then return 1; fi
+  printf '%s\n' "$dir/$name"
+}
+
+fix_version() {
+  local d hash
+  for d in "$HERE" "$HERE/.."; do
+    if [ -d "$d/.git" ]; then
+      hash=$(git -C "$d" describe --always --dirty 2>/dev/null || true)
+      if [ -n "$hash" ]; then printf '%s\n' "$hash"; return 0; fi
+    fi
+  done
+  if [ -f "$HERE/tf2vr" ]; then
+    hash=$(sha256sum -- "$HERE/tf2vr" 2>/dev/null | awk '{print $1}')
+    if [ -n "$hash" ]; then printf 'sha256:%s\n' "$hash"; return 0; fi
+  fi
+  printf 'unknown\n'
+}
+
+# A small local diagnostic. It records only what a bug report needs: no
+# environment dump, no credentials, no tokens, and it is never uploaded.
+write_diagnostic_report() {
+  local rc="$1" dir file os_release gpu runtime proton_version
+  dir="${XDG_STATE_HOME:-$HOME/.local/state}/tf2vr"
+  if ! mkdir -p "$dir" 2>/dev/null; then return 1; fi
+  file="$dir/$(date +%Y%m%dT%H%M%SZ)-exit${rc}.txt"
+
+  os_release=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release 2>/dev/null | tr -d '"')
+  gpu=$(lspci 2>/dev/null | grep -Ei 'vga|3d|display' | head -n 1)
+  runtime=$(sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    "$HOME/.config/openxr/1/active_runtime.json" 2>/dev/null | head -n 1)
+  if [ -f "$(dirname "$PROTON")/version" ]; then
+    proton_version=$(tr '\n' ' ' <"$(dirname "$PROTON")/version")
+  else
+    proton_version="unknown"
+  fi
+
+  {
+    echo "Titanfall 2 VR Linux Fix - unexpected exit"
+    echo
+    echo "timestamp            : $(date -Is)"
+    echo "exit status          : $rc"
+    echo "Titanfall 2 path     : $G"
+    echo "Steam library        : ${STEAM:-unknown}"
+    echo "Titanfall 2 AppID    : $TF2VR_APPID"
+    echo "Titanfall 2 version  : $(tr -d '\r\n ' <"$G/gameversion.txt" 2>/dev/null || echo unknown)"
+    echo "Proton prefix        : ${PFX:-unknown}"
+    echo "Proton binary        : $PROTON"
+    echo "Proton version       : ${proton_version:-unknown}"
+    echo "Linux distribution   : ${os_release:-unknown}"
+    echo "Kernel               : $(uname -r)"
+    echo "GPU                  : ${gpu:-unknown}"
+    echo "VR runtime           : ${runtime:-unknown}"
+    echo "Linux-fix version    : $(fix_version)"
+    echo
+    echo "This file is written locally and is never uploaded. Trim it before"
+    echo "pasting it into an issue."
+  } >"$file" 2>/dev/null || return 1
+  printf '%s\n' "$file"
+}
+
+unexpected_exit() {
+  local rc="$1" report log
+  report=$(write_diagnostic_report "$rc" 2>/dev/null || true)
+  log=$(newest_session_log 2>/dev/null || true)
+
+  echo
+  echo "============================================================"
+  echo " Titanfall 2 VR Linux Fix - Unexpected Exit"
+  echo "============================================================"
+  echo
+  echo "Titanfall 2 VR exited unexpectedly."
+  echo
+  echo "The problem may be related to Titanfall 2, Proton, the VR runtime,"
+  echo "the Linux compatibility fix, or the underlying VR mod."
+  echo
+  echo "Linux/Proton compatibility issues:"
+  echo "https://github.com/polar421/Titanfall-2-VR-linux-fix/issues"
+  echo
+  echo "Underlying VR mod issues:"
+  echo "https://github.com/Monkellie/tf2vr-linux/issues"
+  echo
+  echo "When reporting the problem, include:"
+  echo "  - Linux distribution"
+  echo "  - Kernel version"
+  echo "  - GPU"
+  echo "  - Proton version"
+  echo "  - VR runtime"
+  echo "  - VR headset"
+  echo "  - Titanfall 2 version"
+  echo "  - Linux-fix version/commit"
+  echo "  - What happened immediately before the problem"
+  echo "  - Steps to reproduce"
+  echo "  - Terminal output"
+  echo "  - Relevant logs"
+  echo
+  echo "Do not delete the logs before creating the report."
+  echo
+  if [ -n "$log" ]; then
+    echo "Relevant log:"
+    echo "  $log"
+  else
+    echo "Relevant log:"
+    echo "  none written yet - please include the terminal output above"
+  fi
+  if [ -n "$report" ]; then
+    echo
+    echo "Diagnostic report written to:"
+    echo "  $report"
+  fi
+  echo
+  echo "Exit status: $rc"
+  echo "============================================================"
+}
+
+"$PROTON" run "$G/TF2VR/tools/crash_monitor.exe" \
   "$WG\\TF2VR" \
   "$WG\\Titanfall2VRLauncher.exe" \
   "${ARGS[@]}" \
   ${USER_ARGS[@]+"${USER_ARGS[@]}"}
+rc=$?
+
+case "$rc" in
+  0)
+    exit 0 ;;
+  130|143)
+    # Ctrl-C / SIGTERM from the user, not a crash.
+    exit "$rc" ;;
+esac
+
+unexpected_exit "$rc"
+exit "$rc"
