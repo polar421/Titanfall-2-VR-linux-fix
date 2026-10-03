@@ -88,9 +88,9 @@ Everything Linux-specific lives in [`titanfall2-linux-fix/`](titanfall2-linux-fi
 
 | Path | Purpose |
 | --- | --- |
-| `install.sh` | Preflight checks, copies everything below into place, and applies the mmdevapi and VR plugin fixes |
+| `install.sh` | Preflight checks, copies everything below into place, and applies the mmdevapi and VR plugin fixes; self-contained, with the detection inlined so nothing has to be sourced |
 | `launcher/tf2vr` | Launcher: starts Proton, checks WiVRn/Steam/EA, builds the launch arguments, and supports optional `--vanilla` |
-| `launcher/tf2vr-detect.sh` | Shared Steam / Titanfall 2 / Proton detection, sourced by both `install.sh` and `tf2vr` |
+| `launcher/tf2vr-detect.sh` | Steam / Titanfall 2 / Proton detection for the `tf2vr` launcher; the same detection is inlined into `install.sh`, so keep the two in step |
 | `launcher/tf2vr-patch-mmdevapi` | Re-applies the Wine `mmdevapi.dll` fix after a Proton update replaces it |
 | `launcher/tf2vr-patch-titanfall2vr` | Re-applies the VR plugin fixes (three fastfail sites and the HUD fade) after a mod reinstall replaces the DLL |
 | `desktop/tf2vr.desktop` | App menu entry (campaign) |
@@ -108,7 +108,7 @@ cd titanfall2-linux-fix
 
 ### Detection
 
-Nothing in this repo contains a hardcoded Steam or game path. `launcher/tf2vr-detect.sh` reads Steam's own files instead:
+Nothing in this repo contains a hardcoded Steam or game path. The detection — inlined into `install.sh`, and kept in `launcher/tf2vr-detect.sh` for the launcher — reads Steam's own files instead:
 
 - `$STEAM_ROOT/steamapps/libraryfolders.vdf` for every configured library, so a library on a second drive — spaces and all — is picked up;
 - `appmanifest_1237970.acf` for the `installdir` Steam actually installed, with `steamapps/common/Titanfall2` as the fallback when no appmanifest is present;

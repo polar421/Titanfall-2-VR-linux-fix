@@ -206,12 +206,14 @@ has "preflight reports no failures" "$out" "Done, no failures"
 lacks "a clean run prints no installer error banner" "$out" "installer error"
 
 # an internal failure: the original output is kept, the status is non-zero and
-# both issue trackers are named
+# both issue trackers are named.  --check guards every file read it makes, so
+# the only way to break the installer for real is to take away a file it has to
+# copy during an install - hence install mode here rather than --check.
 broken="$TMP/broken"
 cp -a "$HERE" "$broken"
-rm -f "$broken/launcher/tf2vr-detect.sh"
+rm -f "$broken/launcher/tf2vr"
 out=$(env HOME="$FAKEHOME" STEAM_DIR="$STEAM1" \
-  "$broken/install.sh" --check </dev/null 2>&1); rc=$?
+  "$broken/install.sh" </dev/null 2>&1); rc=$?
 check "an internal installer failure exits non-zero" "$rc" "1"
 has "the original error output is preserved" "$out" "No such file or directory"
 has "the installer prints its error banner" "$out" "installer error"
