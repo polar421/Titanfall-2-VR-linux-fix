@@ -6,17 +6,18 @@ I originally started this fork to fix the problems I was running into while sett
 
 ## What this fork is for
 
-The main goal of this fork is to improve the Linux/Proton experience for Titanfall 2 VR, including both single-player and multiplayer.
+The main goal of this fork is to improve the Linux/Proton experience for Titanfall 2 VR.
 
 Current focus:
 
 - Linux / Proton compatibility
 - OpenXR and WiVRn support
 - Titanfall 2 VR
-- Northstar
 - Single-player VR
-- Multiplayer VR
 - Proton/Wine compatibility fixes
+- Crash and installer reporting, so a failure can be filed with enough detail
+
+**Multiplayer is not developed here.** The mod's author is working on multiplayer support upstream, so I am not continuing it in this fork. This fork sticks to the Linux/Proton side: the launch path, the binary fixes, detection and reporting. The multiplayer work that already landed here is parked near the bottom of this README under [Multiplayer](#multiplayer) as a record only.
 
 ## Project status
 
@@ -36,28 +37,33 @@ This setup has been tested through actual gameplay rather than by just launching
 | ✅ | `install.sh` | `--check`, a full install, and an `--uninstall` → reinstall round trip all verified |
 | ✅ | Multiplayer script compile fix | The `Encountered CLIENT script compilation error` on `mp_*` is gone; the Multiplayer menu loads |
 | ✅ | Plugin fastfail patches | The `unrecognized pilot hand model` and `seated pilot model changed` fastfails are nop'd; a private match now loads |
+| ✅ | **Private match / listen server** | ~17 min session on `aitdm`: `mp_lobby` → `HostState: ChangeLevelMP`, shoulder-draw answers `TF2VRMP[draw] OK`, grenades arrive and consume ammo, pilot weapons and the titan deal damage, grunts die to melee |
+| ✅ | Northstar multiplayer auth | `Northstar origin authentication completed successfully!` with no `INVALID_MASTERSERVER_TOKEN`; see `tf2vr` for the `ns_has_agreed_to_send_token` fix |
+| ✅ | Voice lines / grunt chatter | Dialogue audible after setting `sound_volume_dialogue` back to `1` (it was `0.000000` in `profile.cfg`) |
+| ✅ | Steam / game / Proton / prefix detection | `launcher/tf2vr-detect.sh` reads Steam's own `libraryfolders.vdf` and `appmanifest_*.acf`, so nothing is hardcoded; covered by `tests/test-detect.sh` |
+| ✅ | Unexpected-exit reporting | The launcher keeps the game's output, prints a banner with the log and both trackers, and writes a local diagnostic report; covered by `tests/test-detect.sh` |
+| ✅ | Installer error reporting | An internal `install.sh` failure keeps the original output, names the failing command, points at both trackers and exits non-zero; covered by `tests/test-detect.sh` |
+| ✅ | Test suite | `tests/test-detect.sh` — 58 checks over detection, the installer, the launcher's exit paths, and the installed build |
 
 #### In testing
 
 | | What | Status |
 | --- | --- | --- |
-| 🟡 | **Private match / listen server** | **In testing phase.** The lobby, `mp_lobby` and a hosted private match on `mp_forwardbase_kodai` load, and the holster / pickup / grenade glue now lives in the companion mod — but no match has been played through yet, so nothing here is claimed as working |
-| 🟡 | Northstar multiplayer | Same session as above; the fly-in and titan-entry crashes are patched but not retested in a real match |
+| 🟡 | Cockpit HUD always visible | Implemented and applied — `tf2vr-patch-titanfall2vr` NOPs the holster-grace branch so `weapon_hud_alpha` stays at 1.0 instead of fading out after 3 s. The instructions and constants were verified against the installed DLL; nobody has confirmed it in the headset yet |
+| 🟡 | Multiplayer against other humans | The session above was solo (only `player polar1251`); no second player has joined, and the mod's HUD/VR behaviour outside a private match is untested |
 | 🟡 | Official Respawn servers in VR | `tf2vr --vanilla` reaches the main menu; no session on an official server has been completed |
 
 #### Not done
 
 | | What | Why |
 | --- | --- | --- |
-| ❌ | Voice lines / grunt chatter | No pilot or grunt dialogue is audible in game; not investigated yet |
 | ❌ | Frontier Defense | `_gamemode_fd.nut` ships with the mod and has never been launched |
-| ❌ | Weapon damage in multiplayer | Pilot weapons have not been confirmed to deal damage |
 | ❌ | Vanilla clients connecting to our server | Needs `ns_auth_allow_insecure 1` on the server plus UDP 37015 forwarded; nobody has connected |
 | ❌ | H.264 memory recorder | A separate `0xC0000409` from `writer->SetInputMediaType` returning `E_NOTIMPL` under Proton — the `mmdevapi` patch does not address it |
 
-**Bottom line:** single-player and the Linux launch path are done and tested. Multiplayer is in the testing phase — treat only the ✅ rows as working.
+**Bottom line:** single-player, the Linux launch path, and a hosted private match are done and tested. Official Respawn servers are still unverified — treat only the ✅ rows as working. The ✅ multiplayer rows record what was fixed here, not a promise that MP is finished.
 
-I'm continuing to work on making the setup easier to reproduce and on getting multiplayer working reliably. This is an independent fork, so Linux-specific changes land here first.
+I'm continuing to work on making the setup easier to reproduce — detection, tests and reporting — and on the remaining Proton/Wine compatibility fixes. Multiplayer itself now belongs to the mod's author; this is an independent fork, so Linux-specific changes land here first.
 
 ### Planned features
 
@@ -65,10 +71,9 @@ Nothing below is implemented yet.
 
 | | Requested |
 | --- | --- |
-| ❌ | HUD always visible instead of fading out |
 | ❌ | Physical turning while piloting a titan |
 | ❌ | Titan vertical look sensitivity (currently lower than horizontal, and the look-up cutoff is hard to predict) |
-| ❌ | First-person titan entry in multiplayer |
+| ❌ | First-person titan entry in multiplayer *(upstream — see [Multiplayer](#multiplayer))* |
 | ❌ | Automatically move the *Interact* trigger to the free hand when the other hand is holding a gun |
 | ❌ | Aim camera-locked titan abilities (Scorch's incendiary launcher wall, Tone's sonar pulse, …) where the player is actually looking |
 | ❌ | Toggle to turn off VR reloads and VR grenade throwing — always auto-reload as a pilot, and throw ordnance with the normal trajectory aimed by hand |
@@ -93,12 +98,14 @@ Everything Linux-specific lives in [`titanfall2-linux-fix/`](titanfall2-linux-fi
 | --- | --- |
 | `install.sh` | Preflight checks, copies everything below into place, applies the mmdevapi and VR plugin fixes |
 | `launcher/tf2vr` | Launcher: starts Proton, checks WiVRn/Steam/EA, builds the launch arguments, optional `--vanilla` |
+| `launcher/tf2vr-detect.sh` | Shared Steam / Titanfall 2 / Proton detection, sourced by both `install.sh` and `tf2vr` |
 | `launcher/tf2vr-patch-mmdevapi` | Re-applies the Wine `mmdevapi.dll` fix after a Proton update replaces it |
-| `launcher/tf2vr-patch-titanfall2vr` | Re-applies the VR plugin fastfail fixes after a mod reinstall replaces the DLL |
+| `launcher/tf2vr-patch-titanfall2vr` | Re-applies the VR plugin fixes (three fastfail sites and the HUD fade) after a mod reinstall replaces the DLL |
 | `desktop/tf2vr.desktop` | App menu entry (campaign) |
 | `desktop/tf2vr-vanilla.desktop` | App menu entry (`tf2vr --vanilla`) |
 | `icon/tf2vr.png` | Icon used by both entries |
 | `northstar-mod/Titanfall2VR.MPFix/` | Companion Northstar mod that makes the Multiplayer menu load and drives holster / pickup / grenade / titan-pose glue in MP |
+| `tests/test-detect.sh` | Test suite for detection, the installer's exit paths, the launcher's exit reporting, and the installed build |
 
 Install it with:
 
@@ -107,11 +114,49 @@ cd titanfall2-linux-fix
 ./install.sh
 ```
 
-`install.sh` is idempotent. It verifies Steam, Titanfall 2, Proton, the TF2VR mod and WiVRn before touching anything, then copies the launcher to `~/.local/bin`, fills in `@BIN@`/`@ICON@`/`@GAMEDIR@` in the `.desktop` templates with your own paths, installs the icon, adds the multiplayer companion mod described below, and applies the two binary fixes — the Proton `mmdevapi.dll` edit and the VR plugin fastfail edits. `--check` runs the preflight only and changes nothing, `--no-patch` skips both binary fixes, `--no-mp-fix` skips the game-side folder, `--uninstall` removes everything it installed and restores the original `Titanfall2VR.dll`.
+### Detection
+
+Nothing in this repo carries a hardcoded Steam or game path.
+`launcher/tf2vr-detect.sh` reads Steam's own files instead:
+
+- `$STEAM_ROOT/steamapps/libraryfolders.vdf` for every configured library, so a
+  library on a second drive — spaces and all — is picked up;
+- `appmanifest_1237970.acf` for the `installdir` Steam actually installed, with
+  `steamapps/common/Titanfall2` as the fallback when no appmanifest is present;
+- `compatdata/1237970/pfx` derived from the library the game lives in, not from
+  the primary drive;
+- Proton, in this order: the `TF2VR_PROTON` override, the tool Steam's own
+  `CompatToolMapping` records for app `1237970`, `Proton - Experimental`, then
+  the first tool found in `steamapps/common/*/proton` or
+  `compatibilitytools.d/*/proton` across every library.
+
+If more than one install is found the installer lists them and asks which one to
+use; in a non-interactive run it refuses to guess rather than patching the wrong
+game. Overrides: `STEAM_DIR` (Steam root), `TF2VR_GAME` (game directory),
+`TF2VR_PROTON` (Proton binary).
+
+`install.sh` is idempotent. It verifies Steam, Titanfall 2, Proton, the TF2VR mod and WiVRn before touching anything, then copies the launcher to `~/.local/bin`, fills in `@BIN@`/`@ICON@`/`@GAMEDIR@` in the `.desktop` templates with your own paths, installs the icon, adds the multiplayer companion mod described below, and applies the binary fixes — the Proton `mmdevapi.dll` edit plus the four edits in the VR plugin. `--check` runs the preflight only and changes nothing, `--no-patch` skips the binary fixes, `--no-mp-fix` skips the game-side folder, `--uninstall` removes everything it installed and restores the original `Titanfall2VR.dll`.
 
 WiVRn is registered as the OpenXR runtime through `~/.config/openxr/1/active_runtime.json`, which `install.sh` creates if it is missing and otherwise leaves alone. The launcher deliberately unsets `XR_RUNTIME_JSON` so that file is what OpenXR loads; it is a machine-level setting and is intentionally not tracked in this repo.
 
-**The only change inside the game directory is one new folder and three nop'd bytes.** `install.sh` adds `TF2VR/mods/Titanfall2VR.MPFix/` and turns three fastfail sites in `TF2VR/plugins/Titanfall2VR.dll` into NOPs, keeping the original as `Titanfall2VR.dll.orig-tf2vr` (restored by `--uninstall`). Everything else in the installed `TF2VR/` tree stays byte-for-byte identical to the upstream mod package — checked with SHA-256 against `Titanfall2VR-1.0.7.zip`, all 84 files matching before either fix is applied. `xr_probe.exe` and `Titanfall2VR.dll` are therefore the stock shipped binaries, not rebuilt ones, and are deliberately not committed here; this repo ships only the patcher that edits them.
+**The only change inside the game directory is one new folder and eight nop'd bytes.** `install.sh` adds `TF2VR/mods/Titanfall2VR.MPFix/` and turns four sites in `TF2VR/plugins/Titanfall2VR.dll` into NOPs — three `int 0x29` fastfails and the two-byte HUD fade branch — keeping the original as `Titanfall2VR.dll.orig-tf2vr` (restored by `--uninstall`). Everything else in the installed `TF2VR/` tree stays byte-for-byte identical to the upstream mod package — checked with SHA-256 against `Titanfall2VR-1.0.7.zip`, all 84 files matching before any fix is applied. `xr_probe.exe` and `Titanfall2VR.dll` are therefore the stock shipped binaries, not rebuilt ones, and are deliberately not committed here; this repo ships only the patcher that edits them.
+
+### Tests
+
+```sh
+cd titanfall2-linux-fix
+./tests/test-detect.sh
+```
+
+The suite builds a throwaway Steam tree in a temp directory with `HOME`
+redirected, so it never touches your real installation. It covers library and
+game discovery (including a library path with a space and an appmanifest-based
+installdir), prefix and Proton discovery, the installer's argument and
+not-found paths, an intentional internal failure, the launcher's normal,
+unexpected and interrupted exit paths, the contents of the diagnostic report,
+and finally re-runs the patcher and `install.sh --check` against the game
+actually installed on the machine. It prints `passed N, failed M, skipped K`
+and exits non-zero on any failure.
 
 ## Linux compatibility fix
 
@@ -127,16 +172,116 @@ Under Proton, the mod's `ActivateAudioInterfaceAsync(L"VAD\\Process_Loopback", .
 
 `tf2vr` runs it automatically before every launch. Set `TF2VR_NO_PATCH=1` to run against an unmodified Proton instead.
 
+### Cockpit HUD fade
+
+With a gun holstered in VR the cockpit HUD's weapon panel fades away after about
+three seconds and only comes back when you draw again, which reads as a broken
+HUD rather than an intentional effect.
+
+The panel's alpha lives in the plugin's own UI state (`weapon_hud_alpha`).
+A per-frame state machine keeps it at full for a 3 s grace period after the gun
+leaves the hand, then ramps it down over 0.25 s, and ramps it back up over
+0.15 s when you draw. The branch that accumulates the grace timer is picked by
+a `test`/`je` pair, and the condition is only read there.
+
+`tf2vr-patch-titanfall2vr` NOPs that `je`, so the fade-in arm is taken
+unconditionally: the alpha lerps to `1.0` and stays there. The cinematic, menu
+and loading gates that hide the HUD on purpose are separate checks and are left
+alone, so cutscenes still behave.
+
+The site is found structurally rather than by a fixed address — the `je` it
+patches has to guard the instruction sequence that resets the grace timer and
+applies the 0.15 s fade constant, and the same function has to write `1.0` back
+into the alpha — so a different plugin build is skipped rather than corrupted.
+
+**Applied, not yet confirmed in the headset** — see [Project status](#project-status).
+
+## Reporting a problem
+
+Nothing is ever uploaded automatically. When something fails you get a banner
+that tells you where the evidence is, and you file the issue yourself.
+
+### The game exited unexpectedly
+
+If `tf2vr` sees the game leave with a status other than `0`, `130` (Ctrl-C) or
+`143` (SIGTERM), it prints an **Unexpected Exit** banner and still keeps the
+game's own exit status. The banner names both trackers, points at the newest
+session log under `<game>/TF2VR/logs/`, and writes a diagnostic report to:
+
+```
+${XDG_STATE_HOME:-~/.local/state}/tf2vr/<timestamp>-exit<status>.txt
+```
+
+The report holds only what a bug report needs — the Titanfall 2 path, Steam
+library, AppID and game version, Proton binary, prefix and version, Linux
+distribution, kernel, GPU, OpenXR runtime, a fingerprint of the launcher and
+the exit status. It does not dump the environment and collects no passwords,
+tokens or keys. Trim it before pasting it anywhere.
+
+The terminal output above the banner is not swallowed either: whatever the game
+printed stays visible.
+
+### The installer failed
+
+`install.sh` distinguishes its own failures from game ones. A normal run that
+simply cannot find the game prints a message and exits non-zero with no banner.
+An **installer error** banner only appears when something inside the script
+itself went wrong — it keeps the original output exactly as it was, names the
+command that failed and its status, and links the same two trackers. If you see
+that banner, it is a bug in this repo rather than in Titanfall 2.
+
+### Filing the issue
+
+Open an issue with the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md)
+and attach:
+
+- the diagnostic report, if the launcher wrote one
+- `./install.sh --check` output
+- the newest session log from `<game>/TF2VR/logs/`
+
+**Report Linux/Proton problems here** —
+<https://github.com/polar421/Titanfall-2-VR-linux-fix/issues>
+**Report VR mod problems upstream** —
+<https://github.com/Monkellie/tf2vr-linux/issues>
+
+## Original project
+
+This project is based on:
+
+[CircuitLordVRModInstaller](https://github.com/CircuitLord/CircuitLordVRModInstaller)
+
+All credit for the original Titanfall 2 VR installer and mod work goes to the original project and its contributors.
+
+## Contributing
+
+Linux users who want to help test different Proton versions, hardware, or multiplayer setups are welcome to share their results.
+
+See [Reporting a problem](#reporting-a-problem) for what to attach, and use the
+[bug report template](.github/ISSUE_TEMPLATE/bug_report.md). At minimum:
+
+- Linux distribution
+- Kernel version
+- Proton version
+- GPU / driver version
+- VR headset
+- OpenXR runtime
+- The diagnostic report, `install.sh --check` output and the relevant logs
+
+Changes to the shell side should keep `./tests/test-detect.sh` green:
+
+```sh
+cd titanfall2-linux-fix && ./tests/test-detect.sh
+```
+
 ## Multiplayer
 
-Multiplayer is the main thing this fork still has to get right — see [Project status](#project-status) for exactly what has and has not been tested.
+**Multiplayer is being worked on by the mod's author upstream, so I am not continuing it in this fork.** Everything below is kept only as a record of what was already fixed here; new multiplayer work belongs in the mod itself rather than in a Linux compatibility fork.
 
-The goal is to make it possible to:
+The Linux/Proton side still matters for multiplayer — the launch path, the binary fixes and Northstar auth all apply — so an MP problem that is specific to Linux or Proton is still in scope. See [Project status](#project-status) for exactly what has and has not been tested.
 
-- Launch Titanfall 2 VR multiplayer through Proton
-- Use Northstar multiplayer
-- Connect to multiplayer servers
-- Play multiplayer normally in VR
+The goal when this work started was to launch Titanfall 2 VR multiplayer through
+Proton, use Northstar, reach servers and play MP normally in VR. What got there
+is below.
 
 ### Multiplayer compile fix
 
@@ -221,40 +366,24 @@ Unlike the two hand-model sites, this helper prints its message and then returns
 
 `tf2vr-patch-titanfall2vr` therefore patches **three** sites: the two hand-model fastfalls (falling through to the same rig table it uses for `pov_mlt_hero_jack.mdl`) and the shared invariant helper's fastfail. It is signature-guarded (message string → its RIP-relative reference → the exact following bytes), idempotent, writes the `Titanfall2VR.dll.orig-tf2vr` backup only if it does not already exist, and never touches the hundreds of other `int 0x29` fastfails in the binary — a different plugin build is skipped rather than corrupted. `install.sh --uninstall` restores the original, and `tf2vr` re-applies it before every launch in case a VR mod reinstall replaces the DLL.
 
-**Not yet verified in game** — the three patches are applied, but no match has been played since.
+**Not yet verified in game** — the three fastfail patches are applied, but no match has been played since.
+
+The same tool patches one more, non-multiplayer site — the cockpit HUD fade,
+covered separately under [Cockpit HUD fade](#cockpit-hud-fade).
 
 ### How multiplayer could be run
 
-*None of the options below has been tested yet — they are the plan, not verified instructions. See [Project status](#project-status).*
+*The offline private match below has been played through; the other options are still a plan, not verified instructions. See [Project status](#project-status).*
 
 Northstar ships inside the mod package, so `Northstar.Client`, `Northstar.Custom` and `Northstar.CustomServers` are all enabled, Frontier Defense (`_gamemode_fd.nut`) is present, and the mod's UI override still registers `PrivateLobbyMenu`.
 
-Upstream `TF2VR/tools/launch.json` points Northstar at a dead master server (`+ns_masterserver_hostname http://127.0.0.1:9` and `+ns_report_server_to_masterserver 0`), so the server browser is empty by design. `tf2vr` reproduces those arguments unless `--vanilla` is passed.
+Upstream `TF2VR/tools/launch.json` ships `+ns_has_agreed_to_send_token 2` (2 = `NS_DISAGREED_TO_SEND_TOKEN`) together with a dead master server (`+ns_masterserver_hostname http://127.0.0.1:9` and `+ns_report_server_to_masterserver 0`), so campaign never talks to `northstar.tf`. That combination locks the Multiplayer button (`panel_mainmenu.nut` requires the value to be `1`) and makes every master-server call answer `INVALID_MASTERSERVER_TOKEN`.
+
+Plain `tf2vr` now sends `+ns_has_agreed_to_send_token 1` and leaves the stock `https://northstar.tf` from `autoexec_ns_client.cfg` alone, so Atlas auth succeeds and the server browser works. `+ns_report_server_to_masterserver 0` is kept so a listen server stays out of the public list. `tf2vr --vanilla` keeps upstream's value `2`, which its code path never checks.
 
 - **Offline private match / Frontier Defense** needs no master server. Use *Play → Private Match* in the lobby, or launch a map directly, e.g. `tf2vr +map mp_forwardbase_kodai +mp_gamemode fd`.
 - **Playing with vanilla (unmodded) clients:** your server cannot appear on the master server vanilla players browse — that list is EA's closed Atlas backend. A vanilla client can instead direct-connect to your listen server (`connect <ip>:37015`) if the server sets `ns_auth_allow_insecure 1` and UDP 37015 is forwarded. Their stock `client.dll` is accepted because `host_skip_client_dll_crc` is already `1`.
 - **`tf2vr --vanilla`** uses Northstar's Vanilla-Compatibility mode. Northstar stays loaded, so the VR plugin still loads, while the game talks to the official Respawn servers. Mods marked `!` must be disabled in the in-game Mods menu.
-
-## Original project
-
-This project is based on:
-
-[CircuitLordVRModInstaller](https://github.com/CircuitLord/CircuitLordVRModInstaller)
-
-All credit for the original Titanfall 2 VR installer and mod work goes to the original project and its contributors.
-
-## Contributing
-
-Linux users who want to help test different Proton versions, hardware, or multiplayer setups are welcome to share their results.
-
-When reporting an issue, please include your:
-
-- Linux distribution
-- Proton version
-- GPU / driver version
-- VR headset
-- OpenXR runtime
-- Relevant logs
 
 ## Disclaimer
 
