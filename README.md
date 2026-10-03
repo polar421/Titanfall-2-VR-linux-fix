@@ -71,6 +71,14 @@ This setup has been tested through actual gameplay rather than simply confirming
 
 I'm continuing to work on making the setup easier to reproduce — detection, tests, reporting, and the remaining Proton/Wine compatibility fixes. This is an independent fork, so Linux-specific changes land here first.
 
+### Branches
+
+| Branch | What lives there |
+| --- | --- |
+| `main` | This documentation and project status, plus the upstream CircuitLord installer (`src/`, `manifest*.json`, `packages/`, `repotools/`) |
+| `titanfall2-vr-mod-fix-auto-installer` | The Linux fix in `titanfall2-linux-fix/` — the self-contained, auto-detecting `install.sh`, the `tf2vr` launcher, both binary patchers, the multiplayer compile fix mod, and `tests/test-detect.sh` |
+| `requested-community-features` | The community request list (the `### Planned features` table) |
+
 ## Linux setup
 
 My current setup:
@@ -84,7 +92,7 @@ My current setup:
 
 ## Repository contents
 
-Everything Linux-specific lives in [`titanfall2-linux-fix/`](titanfall2-linux-fix/):
+Everything Linux-specific lives in `titanfall2-linux-fix/` on the [`titanfall2-vr-mod-fix-auto-installer`](https://github.com/polar421/Titanfall-2-VR-linux-fix/tree/titanfall2-vr-mod-fix-auto-installer) branch:
 
 | Path | Purpose |
 | --- | --- |
