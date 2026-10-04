@@ -14,9 +14,10 @@
 # TF2VR_PROTON (proton binary).  If detection fails you are asked for the
 # game directory instead.
 #
-# Installs into $HOME. Inside the game directory it adds the Titanfall2VR.MPFix
-# mod folder and patches the VR plugin: its fastfail sites and the cockpit HUD
-# fade flag (*.orig-tf2vr backup).
+# Installs into $HOME: the tf2vr launcher, the binary patchers and tf2vr-update,
+# which downloads new releases of the VR mod itself.  Inside the game directory
+# it adds the Titanfall2VR.MPFix mod folder and patches the VR plugin: its
+# fastfail sites and the cockpit HUD fade flag (*.orig-tf2vr backup).
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -347,6 +348,62 @@ _tf2vr_read_compat_tool() {
   ' "$1"
 }
 
+# ------------------------------------------------------------ filesystem probes
+# A Steam library can sit on ntfs-3g, exFAT or another mount that will not keep
+# permissions, and a refused write surfaces later as a bare "write error" with
+# no directory named.  Probe the target before anything is copied.
+
+# The filesystem backing <dir>.  Prints nothing when it cannot be determined.
+tf2vr_filesystem() {
+  local dir="${1:-}"
+  [ -n "$dir" ] && [ -e "$dir" ] || return 0
+  if command -v findmnt >/dev/null 2>&1; then
+    local out
+    if out=$(findmnt -n -o FSTYPE --target "$dir" 2>/dev/null) && [ -n "$out" ]; then
+      printf '%s\n' "$out"
+      return 0
+    fi
+  fi
+  stat -f -c '%T' -- "$dir" 2>/dev/null || true
+}
+
+# Mounts that keep neither an executable bit nor permissions and that fold case,
+# which is what turns an ordinary copy into a confusing failure.
+tf2vr_filesystem_is_risky() {
+  local fs
+  fs=$(tf2vr_filesystem "${1:-}" | tr '[:upper:]' '[:lower:]')
+  case "$fs" in
+    ntfs*|fuseblk|exfat|vfat|msdos|smbfs|cifs|9p|fuse.*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Writes, appends to and removes <dir>/.tf2vr-write-test.  On success prints
+# nothing and returns 0; on failure prints the operating system's own words and
+# returns 1.  The path it reports is the one the caller has to fix.
+tf2vr_write_probe() {
+  local dir="${1:-}" probe err
+  if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+    printf 'not a directory: %s\n' "${dir:-<none>}"
+    return 1
+  fi
+  probe="$dir/.tf2vr-write-test"
+  if ! err=$( { printf 'tf2vr' > "$probe"; } 2>&1 ); then
+    printf '%s\n' "$err"
+    return 1
+  fi
+  if ! err=$( { printf '!' >> "$probe"; } 2>&1 ); then
+    printf '%s\n' "$err"
+    rm -f "$probe" 2>/dev/null || true
+    return 1
+  fi
+  if ! rm -f "$probe" 2>/dev/null; then
+    printf 'cannot remove %s\n' "$probe"
+    return 1
+  fi
+  return 0
+}
+
 # Filled in by resolve_paths() once detection has succeeded.
 STEAM=""
 GAME=""
@@ -514,6 +571,23 @@ preflight() {
       && ok "Titanfall 2: $GAME" \
       || fail "Titanfall 2 not found at $GAME"
 
+    local fs probe
+    fs=$(tf2vr_filesystem "$GAME")
+    fs=${fs:-unknown filesystem}
+    if probe=$(tf2vr_write_probe "$GAME"); then
+      ok "Game folder writable ($fs)"
+      if tf2vr_filesystem_is_risky "$GAME"; then
+        warn "$GAME is on $fs, which keeps neither permissions nor an executable bit"
+        warn "copies into it can fail - a Linux filesystem (ext4, btrfs, xfs) does not"
+      fi
+    else
+      fail "cannot write to $GAME ($fs): $probe"
+      echo
+      echo "Nothing can be copied into $GAME, so installing would stop halfway:"
+      echo "  $GAME ($fs): $probe"
+      installer_exit 1
+    fi
+
     [ -x "$PROTON" ] \
       && ok "Proton: $PROTON" \
       || fail "no Proton found - install one (Steam -> Library -> right-click the game -> Properties -> Compatibility), or set TF2VR_PROTON=..."
@@ -588,7 +662,8 @@ install_files() {
   install -Dm755 "$HERE/launcher/tf2vr-patch-mmdevapi"  "$BIN/tf2vr-patch-mmdevapi"
   install -Dm755 "$HERE/launcher/tf2vr-patch-titanfall2vr" "$BIN/tf2vr-patch-titanfall2vr"
   install -Dm644 "$HERE/launcher/tf2vr-detect.sh"       "$BIN/tf2vr-detect.sh"
-  ok "$BIN/tf2vr, tf2vr-detect.sh, tf2vr-patch-mmdevapi, tf2vr-patch-titanfall2vr"
+  install -Dm755 "$HERE/tf2vr-update"                   "$BIN/tf2vr-update"
+  ok "$BIN/tf2vr, tf2vr-update, tf2vr-detect.sh, tf2vr-patch-mmdevapi, tf2vr-patch-titanfall2vr"
 
   install -d -m755 "$APPS"
   local f out
@@ -657,10 +732,14 @@ JSON
 
       echo
       echo "Titanfall2VR.dll:"
+      # One file is checked here, so nothing is filtered: "different plugin
+      # build, skipped" is the one line that must reach the user, because it
+      # means the Linux fix is not applied to this build.
       if out=$("$BIN/tf2vr-patch-titanfall2vr" 2>&1); then
-        printf '%s\n' "$out" \
-          | grep -E '^  (already )?patched:|patched of [0-9]+ checked' \
-          || printf '%s\n' "$out"
+        printf '%s\n' "$out"
+        if printf '%s\n' "$out" | grep -q 'different plugin build'; then
+          warn "the Linux fix was not applied - this plugin build has no patch patterns yet"
+        fi
       else
         printf '%s\n' "$out"
         warn "the patcher reported a problem (re-run tf2vr-patch-titanfall2vr for details)"
@@ -690,8 +769,8 @@ uninstall_files() {
       warn "the original Titanfall2VR.dll was not restored"
     fi
   fi
-  for f in "$BIN/tf2vr" "$BIN/tf2vr-detect.sh" "$BIN/tf2vr-patch-mmdevapi" \
-           "$BIN/tf2vr-patch-titanfall2vr" \
+  for f in "$BIN/tf2vr" "$BIN/tf2vr-update" "$BIN/tf2vr-detect.sh" \
+           "$BIN/tf2vr-patch-mmdevapi" "$BIN/tf2vr-patch-titanfall2vr" \
            "$APPS/tf2vr.desktop" "$APPS/tf2vr-vanilla.desktop" "$ICON"; do
     if [ -e "$f" ]; then rm -f "$f"; ok "removed $f"; else ok "not present: $f"; fi
   done

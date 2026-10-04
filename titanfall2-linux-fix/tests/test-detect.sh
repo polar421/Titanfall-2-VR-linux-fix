@@ -164,6 +164,38 @@ r=$(env -i HOME="$FAKEHOME" STEAM_DIR="$STEAM1" TF2VR_PROTON=/bin/true PATH="$PA
 check "TF2VR_PROTON overrides Proton discovery" "$r" "/bin/true"
 
 echo
+echo "Filesystem:"
+
+r=$(detect 'tf2vr_filesystem "'"$GAMEDIR"'"')
+if [ -n "$r" ]; then
+  pass "tf2vr_filesystem names the filesystem behind the game ($r)"
+else
+  nope "tf2vr_filesystem names the filesystem behind the game"
+fi
+
+r=$(detect 'tf2vr_write_probe "'"$GAMEDIR"'" && echo writable')
+check "tf2vr_write_probe accepts a writable directory" "$r" "writable"
+
+RODIR="$TMP/read-only"
+mkdir -p "$RODIR"
+chmod 555 "$RODIR"
+r=$(detect 'tf2vr_write_probe "'"$RODIR"'" >/dev/null || echo refused')
+check "tf2vr_write_probe refuses a read-only directory" "$r" "refused"
+r=$(detect 'tf2vr_write_probe "'"$RODIR"'" || true')
+has "the refusal names the exact path that failed" "$r" "$RODIR/.tf2vr-write-test"
+has "the refusal carries the operating system's own reason" "$r" "Permission denied"
+chmod 755 "$RODIR"
+
+# the risky list is a pattern match on the mount type, so it can be exercised
+# without a Windows filesystem being available
+r=$(detect 'tf2vr_filesystem() { printf "ntfs3\n"; }; if tf2vr_filesystem_is_risky "'"$GAMEDIR"'"; then echo risky; fi')
+check "tf2vr_filesystem_is_risky flags an ntfs mount" "$r" "risky"
+r=$(detect 'tf2vr_filesystem() { printf "exfat\n"; }; if tf2vr_filesystem_is_risky "'"$GAMEDIR"'"; then echo risky; fi')
+check "tf2vr_filesystem_is_risky flags an exfat mount" "$r" "risky"
+r=$(detect 'tf2vr_filesystem() { printf "ext4\n"; }; if tf2vr_filesystem_is_risky "'"$GAMEDIR"'"; then echo risky; else echo fine; fi')
+check "tf2vr_filesystem_is_risky accepts ext4" "$r" "fine"
+
+echo
 echo "Installer:"
 HOME="$FAKEHOME"
 export HOME
@@ -219,6 +251,54 @@ has "the original error output is preserved" "$out" "No such file or directory"
 has "the installer prints its error banner" "$out" "installer error"
 has "the Linux-fix issue tracker is named" "$out" "Titanfall-2-VR-linux-fix/issues"
 has "the VR mod issue tracker is named" "$out" "Monkellie/tf2vr-linux/issues"
+
+# A read-only game directory is the "write error" users report with no path
+# attached to it.  Name the directory, carry the operating system's own reason,
+# and stop before anything is copied halfway in.
+ROGAME="$TMP/read-only-game"
+make_game_plain "$ROGAME"
+chmod 555 "$ROGAME"
+out=$(env HOME="$FAKEHOME" STEAM_DIR="$STEAM1" TF2VR_GAME="$ROGAME" \
+  "$INSTALLER" --check </dev/null 2>&1); rc=$?
+check "a read-only game directory fails the preflight" "$rc" "1"
+has "the failure names the directory" "$out" "cannot write to $ROGAME"
+has "the failure names the filesystem behind it" "$out" "$ROGAME ("
+has "the failure carries the operating system's own reason" "$out" "Permission denied"
+lacks "a refused write prints no installer error banner" "$out" "installer error"
+chmod 755 "$ROGAME"
+
+echo
+echo "Updater:"
+
+UPDATER="$HERE/tf2vr-update"
+
+out=$("$UPDATER" --help </dev/null 2>&1); rc=$?
+check "tf2vr-update --help exits 0" "$rc" "0"
+has "tf2vr-update --help lists the dry run" "$out" "--dry-run"
+has "tf2vr-update --help lists the cache override" "$out" "TF2VR_CACHE"
+
+out=$("$UPDATER" --bogus </dev/null 2>&1); rc=$?
+check "tf2vr-update rejects an unknown option" "$rc" "1"
+has "tf2vr-update explains the unknown option" "$out" "unknown option"
+
+out=$(env HOME="$FAKEHOME" TF2VR_GAME="$TMP/notthegame" \
+  "$UPDATER" --check </dev/null 2>&1); rc=$?
+check "tf2vr-update refuses a directory that is not the game" "$rc" "1"
+has "tf2vr-update says why the path was refused" "$out" "not a Titanfall 2 installation"
+lacks "the refusal never reaches the manifest" "$out" "fetching https://"
+
+# version comparison lives in the updater and is reachable by sourcing it,
+# which is what keeps this testable without a network round trip
+vnr() {
+  bash -c ". '$UPDATER' >/dev/null 2>&1 || exit 9
+if version_is_newer '$1' '$2'; then echo yes; else echo no; fi" 2>&1
+}
+check "1.0.12 is newer than 1.0.8" "$(vnr 1.0.12 1.0.8)" "yes"
+check "1.0.12 is newer than 1.0.9" "$(vnr 1.0.12 1.0.9)" "yes"
+check "1.0.9 is not newer than 1.0.12" "$(vnr 1.0.9 1.0.12)" "no"
+check "an equal version is not newer" "$(vnr 1.0.8 1.0.8)" "no"
+check "a longer version line still compares" "$(vnr 2.0 1.9.9)" "yes"
+check "a shorter version line still compares" "$(vnr 1.0.12 1)" "yes"
 
 echo
 echo "Launcher:"

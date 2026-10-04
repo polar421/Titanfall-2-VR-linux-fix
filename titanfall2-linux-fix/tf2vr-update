@@ -1,0 +1,618 @@
+#!/usr/bin/env bash
+# Update the installed Titanfall 2 VR mod to the version the manifest publishes.
+#
+# Usage:
+#   tf2vr-update                update when the manifest has something newer
+#   tf2vr-update --check        report what would happen and change nothing;
+#                               exits 2 when an update is available
+#   tf2vr-update --dry-run      download, verify and rebuild the game assets,
+#                               then stop without touching TF2VR
+#   tf2vr-update --beta         take the beta channel when it is newer
+#   tf2vr-update --force        install the manifest version even when it
+#                               already matches what is installed
+#   tf2vr-update <game-dir>     use this installation instead of the detected one
+#   tf2vr-update --help         this text
+#
+# Environment:
+#   TF2VR_GAME    game directory, same as the <game-dir> argument
+#   TF2VR_PROTON  proton binary used to run asset_patcher.exe
+#   TF2VR_CACHE   download cache (default ~/.cache/tf2vr-installer)
+#
+# Exit status:
+#   0  up to date (or updated) and the Linux fix is applied
+#   1  an error - nothing was left half written
+#   2  --check found a newer version
+#   3  the Linux fix is not applied to the installed plugin
+#
+# Nothing is deleted.  Everything is prepared first - the zip is downloaded and
+# checked against the manifest, the game-derived assets are rebuilt into a
+# scratch directory - and only then copied into TF2VR, so a failure before the
+# copy leaves the installation exactly as it was.  Files that come from the
+# user rather than from the package (enabledmods.json, logs, crashes, other
+# mods) are overwritten only where the package provides a replacement.
+
+set -euo pipefail
+
+HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+MANIFEST_URL="https://raw.githubusercontent.com/CircuitLord/CircuitLordVRModInstaller/main/manifest-v3.json"
+PROFILE="TF2VR"
+
+MODE="update"
+BETA=0
+FORCE=0
+GAME=""
+
+MANIFEST=""
+WORK=""
+PKG=""
+
+M_VERSION=""
+M_URL=""
+M_SHA=""
+M_SIZE=""
+
+err() { printf 'tf2vr-update: %s\n' "$*" >&2; }
+die() { err "$*"; exit 1; }
+say() { printf '%s\n' "$*"; }
+ok() { printf '  ok    %s\n' "$*"; }
+warn() { printf '  warn  %s\n' "$*"; }
+
+cleanup() {
+  if [ -n "$MANIFEST" ]; then rm -f "$MANIFEST" 2>/dev/null || true; fi
+  if [ -n "$WORK" ]; then rm -rf "$WORK" 2>/dev/null || true; fi
+  return 0
+}
+trap cleanup EXIT
+
+usage() {
+  awk 'NR > 1 { if ($0 ~ /^set -euo/) exit; sub(/^# ?/, ""); print }' "$0"
+}
+
+# ------------------------------------------------------------------ helpers --
+
+require_tools() {
+  local t missing=""
+  for t in python3 sha256sum; do
+    command -v "$t" >/dev/null 2>&1 || missing="$missing $t"
+  done
+  if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+    missing="$missing curl-or-wget"
+  fi
+  [ -z "$missing" ] || die "missing required tools:$missing"
+}
+
+# Prints the filesystem backing <dir>, or nothing when it cannot be told.
+filesystem_of() { tf2vr_filesystem "${1:-}"; }
+
+# Returns 0 when <dir> can be written to; prints the operating system's own
+# explanation and returns 1 when it cannot.
+write_probe() { tf2vr_write_probe "${1:-}"; }
+
+# Returns 0 when <1> is a strictly higher version number than <2>.
+version_is_newer() {
+  local IFS=.
+  local i n l r
+  local -a a b
+  read -r -a a <<< "${1:-0}"
+  read -r -a b <<< "${2:-0}"
+  n=${#a[@]}
+  if [ ${#b[@]} -gt "$n" ]; then n=${#b[@]}; fi
+  for ((i = 0; i < n; i++)); do
+    l=${a[i]:-0}
+    r=${b[i]:-0}
+    l=${l%%[!0-9]*}
+    r=${r%%[!0-9]*}
+    l=${l:-0}
+    r=${r:-0}
+    if [ "$l" -gt "$r" ]; then return 0; fi
+    if [ "$l" -lt "$r" ]; then return 1; fi
+  done
+  return 1
+}
+
+sha256_matches() {
+  local file="$1" want="${2:-}" got
+  [ -n "$want" ] || return 0
+  got=$(sha256sum -- "$file" | awk '{print $1}')
+  [ "${got,,}" = "${want,,}" ]
+}
+
+# Windows path with the Z: drive Proton maps to /.
+_wpath() {
+  local p="${1:-}"
+  case "$p" in
+    /*) ;;
+    *) p="$PWD/$p" ;;
+  esac
+  printf 'Z:%s\n' "${p//\//\\}"
+}
+
+# --------------------------------------------------------------- detection --
+
+detect_file() {
+  local c
+  for c in "$HERE/tf2vr-detect.sh" "$HERE/launcher/tf2vr-detect.sh"; do
+    if [ -f "$c" ]; then printf '%s\n' "$c"; return 0; fi
+  done
+  return 1
+}
+
+resolve_game() {
+  if [ -z "$GAME" ]; then
+    if [ -n "${TF2VR_GAME:-}" ]; then
+      GAME="$TF2VR_GAME"
+    else
+      local installs picked
+      installs=$(find_titanfall2_install || true)
+      if [ -z "$installs" ]; then
+        die "Titanfall 2 was not found - pass the directory: tf2vr-update /path/to/Titanfall2"
+      fi
+      if picked=$(pick_titanfall2_install) && [ -n "$picked" ]; then
+        GAME="$picked"
+      elif [ "$(printf '%s\n' "$installs" | wc -l)" -gt 1 ]; then
+        err "more than one Titanfall 2 installation was found:"
+        printf '%s\n' "$installs" | sed 's/^/    /' >&2
+        die "pass the one to update: tf2vr-update /path/to/Titanfall2"
+      else
+        GAME=$(printf '%s\n' "$installs" | head -n 1)
+      fi
+    fi
+  fi
+  validate_titanfall2_install "$GAME" \
+    || die "not a Titanfall 2 installation (needs Titanfall2.exe and a vpk/ directory): $GAME"
+}
+
+# Refuse early, naming the directory and the operating system's reason, instead
+# of failing half way through the copy.
+filesystem_preflight() {
+  echo "Filesystem:"
+  local fs problem target
+  fs=$(filesystem_of "$GAME")
+  fs=${fs:-unknown filesystem}
+
+  if problem=$(write_probe "$GAME"); then
+    ok "$GAME ($fs)"
+  else
+    die "cannot write to $GAME ($fs): $problem"
+  fi
+
+  if tf2vr_filesystem_is_risky "$GAME"; then
+    warn "$GAME is on $fs, which keeps neither permissions nor an executable bit"
+    warn "copies into it can fail - a Linux filesystem such as ext4, btrfs or xfs does not"
+  fi
+
+  for target in "$GAME/$PROFILE" "$GAME/$PROFILE/plugins" "$GAME/$PROFILE/tools"; do
+    if [ -d "$target" ]; then
+      if problem=$(write_probe "$target"); then
+        ok "$target"
+      else
+        die "cannot write to $target ($fs): $problem"
+      fi
+    fi
+  done
+}
+
+# ------------------------------------------------------------------ manifest --
+
+fetch_manifest() {
+  MANIFEST=$(mktemp "${TMPDIR:-/tmp}/tf2vr-manifest.XXXXXX.json")
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --max-time 60 -o "$MANIFEST" "$MANIFEST_URL" \
+      || { rm -f "$MANIFEST"; MANIFEST=""; return 1; }
+  else
+    wget -q -T 60 -O "$MANIFEST" "$MANIFEST_URL" \
+      || { rm -f "$MANIFEST"; MANIFEST=""; return 1; }
+  fi
+  return 0
+}
+
+# Fills M_VERSION / M_URL / M_SHA / M_SIZE from $MANIFEST.
+read_manifest() {
+  local out
+  if ! out=$(python3 - "$MANIFEST" "$BETA" <<'PY'
+import json, sys
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+beta = sys.argv[2] == "1"
+mod = data.get("titanfall2vr") or {}
+
+entry = mod
+if beta:
+    for ch in mod.get("channels") or []:
+        if str(ch.get("id", "")).lower() == "beta":
+            entry = ch
+            break
+
+version = str(entry.get("version", "") or "")
+url = str(entry.get("url", "") or "")
+if not version or not url:
+    raise SystemExit("the manifest has no titanfall2vr package")
+
+print("\t".join([
+    version,
+    url,
+    str(entry.get("sha256", "") or ""),
+    str(entry.get("size", "") or ""),
+]))
+PY
+  ); then
+    die "could not read the manifest ($MANIFEST_URL)"
+  fi
+  IFS=$'\t' read -r M_VERSION M_URL M_SHA M_SIZE <<< "$out"
+  [ -n "$M_VERSION" ] && [ -n "$M_URL" ] || die "the manifest has no titanfall2vr package"
+}
+
+installed_version() {
+  local release="$GAME/$PROFILE/release.json"
+  [ -f "$release" ] || return 0
+  python3 - "$release" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        print(json.load(fh).get("version", "") or "")
+except Exception:
+    pass
+PY
+}
+
+# ------------------------------------------------------------------ download --
+
+cache_dir() {
+  printf '%s\n' "${TF2VR_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/tf2vr-installer}"
+}
+
+download_package() {
+  local dir file part cached
+  dir=$(cache_dir)
+  install -d "$dir" 2>/dev/null || die "cannot create the download cache: $dir"
+  file="$dir/$(basename "$M_URL")"
+  part="$file.part"
+
+  if [ -f "$file" ]; then
+    if sha256_matches "$file" "$M_SHA"; then
+      ok "already downloaded: $file"
+      PKG="$file"
+      return 0
+    fi
+    warn "the cached copy does not match the manifest - downloading it again"
+    rm -f "$file"
+  fi
+
+  # Anything else in the cache with the manifest's hash counts too, so a package
+  # the graphical installer already fetched is not downloaded a second time.
+  for cached in "$dir"/*; do
+    if [ ! -f "$cached" ]; then continue; fi
+    if [ "$cached" = "$part" ]; then continue; fi
+    if sha256_matches "$cached" "$M_SHA"; then
+      ok "already in the cache: $cached"
+      PKG="$cached"
+      return 0
+    fi
+  done
+
+  say "  $M_URL"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 3 --connect-timeout 20 --progress-bar -o "$part" "$M_URL" \
+      || { rm -f "$part"; die "download failed: $M_URL"; }
+  else
+    wget -q --progress=bar -O "$part" "$M_URL" \
+      || { rm -f "$part"; die "download failed: $M_URL"; }
+  fi
+
+  if ! sha256_matches "$part" "$M_SHA"; then
+    rm -f "$part"
+    die "checksum mismatch for $(basename "$part"): the manifest says $M_SHA"
+  fi
+  mv -f "$part" "$file"
+  ok "downloaded and verified ($(numfmt --to=iec "$(stat -c %s "$file")" 2>/dev/null || printf '%s bytes' "$(stat -c %s "$file")"))"
+  PKG="$file"
+}
+
+# ------------------------------------------------------------------ staging --
+
+extract_package() {
+  WORK=$(mktemp -d "${TMPDIR:-/tmp}/tf2vr-update.XXXXXX")
+  mkdir -p "$WORK/package" "$WORK/assets"
+  if ! python3 - "$PKG" "$WORK/package" <<'PY'
+import os, sys, zipfile
+
+zpath, dest = sys.argv[1], sys.argv[2]
+root = os.path.realpath(dest)
+
+with zipfile.ZipFile(zpath) as z:
+    for name in z.namelist():
+        if name.endswith("/"):
+            continue
+        target = os.path.realpath(os.path.join(dest, name))
+        if target != root and not target.startswith(root + os.sep):
+            raise SystemExit("unsafe path in the package: %s" % name)
+        parent = os.path.dirname(target)
+        os.makedirs(parent, exist_ok=True)
+        with z.open(name) as src, open(target, "wb") as out:
+            while True:
+                chunk = src.read(1 << 20)
+                if not chunk:
+                    break
+                out.write(chunk)
+PY
+  then
+    die "could not extract $(basename "$PKG")"
+  fi
+  chmod +x "$WORK/package/asset_patcher.exe" 2>/dev/null || true
+  ok "staged $(basename "$PKG") in $WORK/package"
+}
+
+# asset_patcher.exe rebuilds the game-derived assets from patches/, and it is a
+# Windows program: it needs Proton (or wine) to run.
+run_asset_patcher() {
+  local exe="$1" gamedir="$2" in_dir="$3" out_dir="$4"
+  local gwin iwin owin log rc=0 proton prefix steamroot
+
+  gwin=$(_wpath "$gamedir")
+  iwin=$(_wpath "$in_dir")
+  owin=$(_wpath "$out_dir")
+  log="$WORK/asset_patcher.log"
+  : >"$log"
+
+  proton=$(find_proton || true)
+  prefix=$(find_titanfall2_prefix "$gamedir" || true)
+
+  if [ -n "$proton" ]; then
+    steamroot=$(_tf2vr_steam_roots | head -n 1 || true)
+    say "  asset_patcher.exe via Proton ($(basename "$(dirname "$proton")"))"
+    STEAM_COMPAT_DATA_PATH="$prefix" \
+    STEAM_COMPAT_CLIENT_INSTALL_PATH="$steamroot" \
+    STEAM_COMPAT_APP_ID="${TF2VR_APPID:-1237970}" \
+    WINEDEBUG=-all \
+      "$proton" run "$exe" apply "$gwin" "$iwin" "$owin" >"$log" 2>&1 || rc=$?
+  elif command -v wine >/dev/null 2>&1; then
+    say "  asset_patcher.exe via wine"
+    if [ -n "$prefix" ] && [ -d "$prefix/pfx" ]; then
+      WINEDEBUG=-all WINEPREFIX="$prefix/pfx" \
+        wine "$exe" apply "$gwin" "$iwin" "$owin" >"$log" 2>&1 || rc=$?
+    else
+      WINEDEBUG=-all \
+        wine "$exe" apply "$gwin" "$iwin" "$owin" >"$log" 2>&1 || rc=$?
+    fi
+  else
+    die "neither Proton nor wine is available to run asset_patcher.exe - install Proton (Steam -> the game -> Properties -> Compatibility) or wine"
+  fi
+
+  if [ "$rc" -ne 0 ]; then
+    err "asset_patcher.exe failed (exit $rc) - nothing in the game was changed"
+    if [ -f "$log" ]; then tail -n 40 "$log" | sed 's/^/    /' >&2; fi
+    exit 1
+  fi
+
+  if [ -z "$(find "$out_dir" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+    warn "asset_patcher.exe produced no output"
+  else
+    ok "game-derived assets rebuilt"
+  fi
+}
+
+rebuild_assets() {
+  local exe="$WORK/package/asset_patcher.exe"
+  local patches="$WORK/package/patches"
+
+  [ -f "$exe" ] || die "the package does not contain asset_patcher.exe"
+  [ -d "$patches" ] || die "the package does not contain patches/"
+  run_asset_patcher "$exe" "$GAME" "$patches" "$WORK/assets"
+}
+
+# ------------------------------------------------------------------- writing --
+
+copy_into_tf2vr() {
+  local pkg="$WORK/package" dest="$GAME/$PROFILE" assets="$WORK/assets"
+  local f n=0 mods=0
+
+  echo "Writing:"
+  mkdir -p "$dest/plugins" "$dest/tools" "$dest/mods"
+
+  if [ -f "$pkg/Titanfall2VR.dll" ]; then
+    cp -f "$pkg/Titanfall2VR.dll" "$dest/plugins/Titanfall2VR.dll"
+    ok "$dest/plugins/Titanfall2VR.dll"
+  else
+    die "the package does not contain Titanfall2VR.dll"
+  fi
+
+  for f in xr_probe.exe crash_monitor.exe launch.json; do
+    if [ -f "$pkg/$f" ]; then
+      cp -f "$pkg/$f" "$dest/tools/$f"
+      n=$((n + 1))
+    fi
+  done
+  if [ "$n" -gt 0 ]; then
+    ok "$n helper file(s) in $dest/tools"
+  fi
+
+  if [ -d "$pkg/mods" ]; then
+    cp -a "$pkg/mods/." "$dest/mods/"
+    mods=$(find "$pkg/mods" -mindepth 1 -maxdepth 1 -type d | wc -l)
+    ok "$dest/mods/ ($mods mod(s))"
+  fi
+
+  if [ -n "$(find "$assets" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+    cp -a "$assets/." "$dest/"
+    ok "rebuilt game assets"
+  else
+    warn "no rebuilt assets were written"
+  fi
+
+  if [ -f "$pkg/release.json" ]; then
+    cp -f "$pkg/release.json" "$dest/release.json"
+    ok "$dest/release.json -> $M_VERSION"
+  else
+    printf '{\n  "version": "%s",\n  "description": "OpenXR campaign VR support for Titanfall 2."\n}\n' \
+      "$M_VERSION" >"$dest/release.json"
+    ok "$dest/release.json -> $M_VERSION"
+  fi
+}
+
+# The package ships a fresh, unpatched Titanfall2VR.dll; without this the Linux
+# fix is gone and the launcher aborts with 0xC0000409.  PATCH_STATE records the
+# outcome so neither the summary nor the exit status can claim success while the
+# fix is missing.
+PATCH_STATE="ok"
+
+# linux_fix <1 = read-only check, 0 = apply it>
+linux_fix() {
+  local dry="" c patcher="" out
+  [ "${1:-0}" = 1 ] && dry="-n"
+  echo
+  echo "Linux fix (Titanfall2VR.dll):"
+  for c in "$HERE/tf2vr-patch-titanfall2vr" \
+    "$HERE/launcher/tf2vr-patch-titanfall2vr" \
+    "$HOME/.local/bin/tf2vr-patch-titanfall2vr"; do
+    if [ -f "$c" ]; then patcher="$c"; break; fi
+  done
+
+  if [ -z "$patcher" ]; then
+    PATCH_STATE="missing"
+    warn "tf2vr-patch-titanfall2vr was not found - the plugin is unpatched"
+    warn "run ./install.sh to apply the Linux fix to it"
+    return 0
+  fi
+
+  # The patcher's own words are the whole story here, so nothing is filtered:
+  # "different plugin build, skipped" is exactly what has to reach the user.
+  if out=$("$patcher" $dry 2>&1); then
+    printf '%s\n' "$out"
+  else
+    printf '%s\n' "$out"
+    PATCH_STATE="missing"
+    warn "the patcher reported a problem - re-run tf2vr-patch-titanfall2vr for details"
+    return 0
+  fi
+
+  if printf '%s\n' "$out" | grep -qE '^  (already )?patched:'; then
+    ok "the Linux fix is applied"
+  elif printf '%s\n' "$out" | grep -qE '^  would patch:'; then
+    PATCH_STATE="ready"
+    ok "the Linux fix is ready to apply"
+  elif printf '%s\n' "$out" | grep -q 'different plugin build'; then
+    PATCH_STATE="missing"
+    warn "the Linux fix is NOT applied: this plugin build has no patch patterns yet"
+    warn "without it an unexpected model name still ends the process with 0xC0000409"
+    warn "tf2vr-patch-titanfall2vr needs patterns for this build"
+  else
+    PATCH_STATE="missing"
+    warn "the Linux fix was not applied to the plugin"
+  fi
+}
+
+# ---------------------------------------------------------------------- main --
+
+main() {
+  local detect installed msize bytes
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --check) MODE="check" ;;
+      --dry-run) MODE="dry-run" ;;
+      --beta) BETA=1 ;;
+      --force) FORCE=1 ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      -*) die "unknown option: $1 (try --help)" ;;
+      *)
+        [ -z "$GAME" ] || die "only one game directory can be given"
+        GAME="$1"
+        ;;
+    esac
+    shift
+  done
+
+  detect=$(detect_file) \
+    || die "tf2vr-detect.sh was not found next to $0"
+  # shellcheck source=launcher/tf2vr-detect.sh
+  . "$detect"
+
+  require_tools
+  resolve_game
+
+  echo "Target:"
+  filesystem_preflight
+
+  echo
+  echo "Versions:"
+  installed=$(installed_version)
+  installed=${installed:-not installed}
+  ok "installed: $installed"
+
+  say "  fetching $MANIFEST_URL"
+  fetch_manifest \
+    || die "could not fetch the manifest - check the network connection"
+  read_manifest
+  if [ "$BETA" = 1 ]; then
+    ok "manifest (beta): $M_VERSION"
+  else
+    ok "manifest: $M_VERSION"
+  fi
+
+  if [ "$FORCE" = 0 ] && ! version_is_newer "$M_VERSION" "$installed"; then
+    if [ "$installed" = "$M_VERSION" ]; then
+      ok "$PROFILE is already at $M_VERSION - nothing to do"
+      linux_fix 1
+      [ "$PATCH_STATE" = "missing" ] && exit 3
+      exit 0
+    fi
+    # The manifest went backwards (or the install is newer): only --force
+    # overrides that, because an in-place downgrade usually breaks saves.
+    warn "the manifest ($M_VERSION) is not newer than the installed $installed"
+    die "pass --force to install it anyway"
+  fi
+
+  if [ "$MODE" = "check" ]; then
+    linux_fix 1
+    echo
+    if [ "$PATCH_STATE" = "missing" ]; then
+      say "The Linux fix is not applied to the installed plugin - see above."
+      exit 3
+    fi
+    say "An update is available: $installed -> $M_VERSION"
+    exit 2
+  fi
+
+  echo
+  echo "Package:"
+  download_package
+
+  msize=${M_SIZE:-0}
+  if [ "$msize" -gt 0 ] 2>/dev/null; then
+    bytes=$(stat -c %s "$PKG")
+    if [ "$bytes" -ne "$msize" ]; then
+      die "size mismatch: expected $msize bytes, got $bytes"
+    fi
+    ok "size matches the manifest ($bytes bytes)"
+  fi
+
+  extract_package
+  rebuild_assets
+
+  if [ "$MODE" = "dry-run" ]; then
+    echo
+    say "Dry run - nothing in $GAME/$PROFILE was changed."
+    say "The package staged in $WORK is removed on exit."
+    exit 0
+  fi
+
+  copy_into_tf2vr
+  linux_fix 0
+
+  echo
+  ok "$PROFILE updated: $installed -> $M_VERSION"
+  if [ "$PATCH_STATE" = "missing" ]; then
+    warn "the mod updated but the Linux fix could not be re-applied - see above"
+    exit 3
+  fi
+  say "Restart the game for the new version to take effect."
+}
+
+# Only when executed: the helpers stay sourceable so the test suite can reach
+# version_is_newer without a network round trip.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi

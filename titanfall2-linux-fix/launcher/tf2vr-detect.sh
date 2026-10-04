@@ -281,3 +281,59 @@ _tf2vr_read_compat_tool() {
     }
   ' "$1"
 }
+
+# ------------------------------------------------------------ filesystem probes
+# A Steam library can sit on ntfs-3g, exFAT or another mount that will not keep
+# permissions, and a refused write surfaces later as a bare "write error" with
+# no directory named.  Probe the target before anything is copied.
+
+# The filesystem backing <dir>.  Prints nothing when it cannot be determined.
+tf2vr_filesystem() {
+  local dir="${1:-}"
+  [ -n "$dir" ] && [ -e "$dir" ] || return 0
+  if command -v findmnt >/dev/null 2>&1; then
+    local out
+    if out=$(findmnt -n -o FSTYPE --target "$dir" 2>/dev/null) && [ -n "$out" ]; then
+      printf '%s\n' "$out"
+      return 0
+    fi
+  fi
+  stat -f -c '%T' -- "$dir" 2>/dev/null || true
+}
+
+# Mounts that keep neither an executable bit nor permissions and that fold case,
+# which is what turns an ordinary copy into a confusing failure.
+tf2vr_filesystem_is_risky() {
+  local fs
+  fs=$(tf2vr_filesystem "${1:-}" | tr '[:upper:]' '[:lower:]')
+  case "$fs" in
+    ntfs*|fuseblk|exfat|vfat|msdos|smbfs|cifs|9p|fuse.*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Writes, appends to and removes <dir>/.tf2vr-write-test.  On success prints
+# nothing and returns 0; on failure prints the operating system's own words and
+# returns 1.  The path it reports is the one the caller has to fix.
+tf2vr_write_probe() {
+  local dir="${1:-}" probe err
+  if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+    printf 'not a directory: %s\n' "${dir:-<none>}"
+    return 1
+  fi
+  probe="$dir/.tf2vr-write-test"
+  if ! err=$( { printf 'tf2vr' > "$probe"; } 2>&1 ); then
+    printf '%s\n' "$err"
+    return 1
+  fi
+  if ! err=$( { printf '!' >> "$probe"; } 2>&1 ); then
+    printf '%s\n' "$err"
+    rm -f "$probe" 2>/dev/null || true
+    return 1
+  fi
+  if ! rm -f "$probe" 2>/dev/null; then
+    printf 'cannot remove %s\n' "$probe"
+    return 1
+  fi
+  return 0
+}
