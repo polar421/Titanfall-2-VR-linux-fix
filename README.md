@@ -53,7 +53,7 @@ This setup has been tested through actual gameplay rather than simply confirming
 | 🟢 | Steam / game / Proton / prefix detection | `launcher/tf2vr-detect.sh` reads Steam's own `libraryfolders.vdf` and `appmanifest_*.acf`, so nothing is hardcoded; covered by `tests/test-detect.sh` |
 | 🟢 | Unexpected-exit reporting | The launcher preserves the game's output, prints a banner with the log and both trackers, and writes a local diagnostic report; covered by `tests/test-detect.sh` |
 | 🟢 | Installer error reporting | An internal `install.sh` failure preserves the original output, identifies the failing command, points to both trackers, and exits non-zero; covered by `tests/test-detect.sh` |
-| 🟢 | Test suite | `tests/test-detect.sh` — 59 checks covering detection, the installer's the launcher's exit paths, and the installed build |
+| 🟢 | Test suite | `tests/test-detect.sh` — 86 checks covering detection, the filesystem probes, the installer's paths, the updater, the launcher's exit paths, and the installed build |
 
 #### In testing
 
@@ -66,6 +66,7 @@ This setup has been tested through actual gameplay rather than simply confirming
 | | What | Why |
 | --- | --- | --- |
 | 🔴 | H.264 memory recorder | Encoding cannot work under Proton — Wine's `mfplat` implements `IMFSinkWriter::SetInputMediaType` as a stub that returns `E_NOTIMPL`, which the plugin treats as fatal. It never gets there: it probes `wine_get_version` in `ntdll.dll` and, when that resolves, skips creating the capture task and logs `memories=wine` in `TF2VR/plugins/Titanfall2VR-data/runtime.txt`. On the installed build the task constructor has exactly one call site and it sits behind that branch, so the recorder cannot run and cannot crash. `tests/test-detect.sh` asserts the probe is still present so a future plugin update cannot silently drop it |
+| 🔴 | Fastfail patches on the mod's 1.0.12 plugin | `tf2vr-patch-titanfall2vr` recognises the 1.0.8 build only. 1.0.12 restructures the invariant checks into inlined `mov ecx,7 ; int 0x29` sites instead of one shared helper, so the patcher reports `different plugin build` and skips. The game still launches — the launcher does not block on the patch — and campaign model names match, but the `0xC0000409` fastfail is live again for anything the plugin does not recognise. `tf2vr-update` exits 3 and `tests/test-detect.sh` fails its installed-build check until patterns for this build exist; `.orig-tf2vr` still holds the 1.0.8 original, so rolling back is possible |
 
 **Bottom line:** single-player, the Linux launch path, and everything the installer ships are done and tested — treat only the 🟢 rows as verified. Multiplayer is no longer tracked on this board; it belongs to the mod's author and is documented under [Earlier multiplayer work](#earlier-multiplayer-work).
 
@@ -76,8 +77,8 @@ I'm continuing to work on making the setup easier to reproduce — detection, te
 | Branch | What lives there |
 | --- | --- |
 | `main` | This documentation and project status, plus the upstream CircuitLord installer (`src/`, `manifest*.json`, `packages/`, `repotools/`) |
-| `titanfall2-vr-mod-fix-auto-installer` | The Linux fix in `titanfall2-linux-fix/` — the self-contained, auto-detecting `install.sh`, the `tf2vr` launcher, both binary patchers, the multiplayer compile fix mod, and `tests/test-detect.sh` |
-| `requested-community-features` | The community request list (the `### Planned features` table) |
+| `titanfall2-vr-mod-fix-auto-installer` | The Linux fix in `titanfall2-linux-fix/` — the self-contained, auto-detecting `install.sh`, the `tf2vr` launcher, `tf2vr-update`, both binary patchers, the multiplayer compile fix mod, and `tests/test-detect.sh` |
+| [`requested-community-features`](https://github.com/polar421/test/tree/requested-community-features) | The community request list (the `### Planned features` table). It lives on the separate [`polar421/test`](https://github.com/polar421/test) fork, so requests stay out of this repository |
 
 ## Linux setup
 
@@ -96,22 +97,24 @@ Everything Linux-specific lives in `titanfall2-linux-fix/` on the [`titanfall2-v
 
 | Path | Purpose |
 | --- | --- |
-| `install.sh` | Preflight checks, copies everything below into place, and applies the mmdevapi and VR plugin fixes |
+| `install.sh` | Preflight checks (including a write probe that names the path and the OS reason when the game folder is read-only), copies everything below into place, and applies the mmdevapi and VR plugin fixes |
+| `tf2vr-update` | Updates the VR mod itself from the published manifest: verifies the download, rebuilds the game-derived assets with `asset_patcher.exe` under Proton, then copies into `TF2VR` |
 | `launcher/tf2vr` | Launcher: starts Proton, checks WiVRn/Steam/EA, builds the launch arguments, and supports optional `--vanilla` |
-| `launcher/tf2vr-detect.sh` | Shared Steam / Titanfall 2 / Proton detection, sourced by both `install.sh` and `tf2vr` |
+| `launcher/tf2vr-detect.sh` | Shared Steam / Titanfall 2 / Proton detection and filesystem probes, sourced by both `install.sh` and `tf2vr` |
 | `launcher/tf2vr-patch-mmdevapi` | Re-applies the Wine `mmdevapi.dll` fix after a Proton update replaces it |
 | `launcher/tf2vr-patch-titanfall2vr` | Re-applies the VR plugin fixes (three fastfail sites and the HUD fade) after a mod reinstall replaces the DLL |
 | `desktop/tf2vr.desktop` | App menu entry (campaign) |
 | `desktop/tf2vr-vanilla.desktop` | App menu entry (`tf2vr --vanilla`) |
 | `icon/tf2vr.png` | Icon used by both entries |
 | `northstar-mod/Titanfall2VR.MPFix/` | Companion Northstar mod that makes the Multiplayer menu load and provides the holster / pickup / grenade / Titan-pose glue used by the MP work |
-| `tests/test-detect.sh` | Test suite for detection, the installer's exit paths, the launcher's exit reporting, and the installed build |
+| `tests/test-detect.sh` | Test suite for detection, the filesystem probes, the installer's exit paths, the updater, the launcher's exit reporting, and the installed build |
 
 Install it with:
 
 ```sh
 cd titanfall2-linux-fix
-./install.sh
+./install.sh      # install the launcher and the fixes
+./tf2vr-update    # update the VR mod itself when the manifest has something newer
 ```
 
 ### Detection
@@ -387,6 +390,12 @@ The patch is signature-guarded (message string → its RIP-relative reference �
 **Not yet verified in game** — the three fastfail patches are applied, but no match has been played since.
 
 The same tool patches one additional, non-multiplayer site — the cockpit HUD fade, covered separately under [Cockpit HUD fade](#cockpit-hud-fade).
+
+#### The mod's 1.0.12 plugin is not covered yet
+
+`tf2vr-update` upgrades the mod to 1.0.12, and that package ships a `Titanfall2VR.dll` the patcher does not recognise. The shared helper is gone: each invariant now inlines its own `lea rcx,[rip+message]` → `call [rip+…]` → `mov ecx,7 ; int 0x29`, so the single helper signature that used to cover every `… changed` / `… failed` check matches nothing. The hand-model and HUD sites are still found; the invariant helper is what fails.
+
+The result is deliberate rather than silent — the patcher skips instead of guessing, `tf2vr-update` prints its words unfiltered and exits `3`, `install.sh --check` warns, and `tests/test-detect.sh` fails its installed-build check. The game launches either way, campaign model names still match, and `.orig-tf2vr` still holds the 1.0.8 original so the upgrade can be undone. What is lost is the downgrade of unexpected-model fastfails from `0xC0000409` to a warning.
 
 ### How multiplayer could be run
 
